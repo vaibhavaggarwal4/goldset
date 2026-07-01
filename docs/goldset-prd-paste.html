@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mini PRD: Goldset Evals</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: #111827;
+      line-height: 1.45;
+      max-width: 760px;
+      margin: 48px auto;
+      padding: 0 24px;
+    }
+    h1 {
+      font-size: 28px;
+      margin: 0 0 24px;
+      font-weight: 700;
+    }
+    h2 {
+      font-size: 18px;
+      margin: 28px 0 8px;
+      font-weight: 700;
+    }
+    p {
+      margin: 8px 0 12px;
+    }
+    ul, ol {
+      margin-top: 8px;
+      margin-bottom: 16px;
+      padding-left: 28px;
+    }
+    li {
+      margin: 4px 0;
+    }
+    code {
+      font-family: "Courier New", monospace;
+      background: #f3f4f6;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    .tagline {
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mini PRD: Goldset Evals</h1>
+
+  <h2>Overview</h2>
+  <p>Goldset Evals is an open source starter kit for evaluating AI-generated marketing work.</p>
+  <p>The core idea is simple: AI marketing teams do not just need more generation. They need a quality and learning layer that helps them measure whether outputs are good, on-brand, accurate, audience-appropriate, and ready to ship.</p>
+  <p>The project starts as a CLI-first open source tool, but is designed with a future SaaS path in mind.</p>
+
+  <h2>Target Users</h2>
+  <p>The first users are early and mid-stage startup teams using AI for growth, marketing, and GTM workflows.</p>
+  <p>Primary users:</p>
+  <ul>
+    <li>Founders</li>
+    <li>Growth marketers</li>
+    <li>Marketing operators</li>
+    <li>Growth engineers</li>
+    <li>Content and lifecycle leads</li>
+    <li>AI-forward GTM teams</li>
+  </ul>
+  <p>These teams are likely using AI to generate lifecycle emails, paid ads, landing page copy, SEO briefs, outbound messages, campaign ideas, and content variants, but they lack a systematic way to evaluate quality.</p>
+
+  <h2>Problem</h2>
+  <p>AI marketing workflows are easy to scale but hard to trust.</p>
+  <p>Teams can generate more copy, campaigns, and content than ever, but they do not have a repeatable system for answering:</p>
+  <ul>
+    <li>Is this output good?</li>
+    <li>Is it on-brand?</li>
+    <li>Is it accurate?</li>
+    <li>Does it fit the audience and channel?</li>
+    <li>Which parts should be checked by code, by an LLM, or by a human?</li>
+    <li>Are failures recurring?</li>
+    <li>Is the system improving over time?</li>
+  </ul>
+  <p>Without evals, teams either over-automate risky work or keep humans buried in manual review.</p>
+
+  <h2>Product Thesis</h2>
+  <p>The next moat in AI marketing is not better prompting. It is better evaluation.</p>
+  <p>Goldset Evals gives marketing teams a way to operationalize judgment through rubrics, deterministic checks, LLM judges, human review, quality reporting, and structured learning loops.</p>
+  <p>The goal is not to remove marketers from the loop. The goal is to make their judgment compound.</p>
+
+  <h2>Self-Improving Loop</h2>
+  <p>Goldset Evals should be designed around a simple self-improving loop:</p>
+  <ol>
+    <li>Human review</li>
+    <li>Structured review signal</li>
+    <li>Recurring finding</li>
+    <li>Eval target</li>
+    <li>Prompt, rubric, workflow, or model improvement</li>
+    <li>Regression check</li>
+  </ol>
+  <p>This means human review is not just an approval step. It becomes structured evidence that helps the system improve over time.</p>
+  <p>Example:</p>
+  <ul>
+    <li>A marketer reviews an AI-generated lifecycle email and marks it as too generic for founders.</li>
+    <li>That review becomes a structured signal.</li>
+    <li>Several similar signals become a finding: “Lifecycle emails are too generic for founder audiences.”</li>
+    <li>That finding becomes an eval target with regression cases and success criteria.</li>
+    <li>The team improves the prompt, rubric, workflow, or model routing.</li>
+    <li>The eval is rerun to check whether quality improved without causing regressions.</li>
+  </ul>
+
+  <h2>V1 Scope</h2>
+  <p>V1 is an open source CLI tool.</p>
+  <p>Core capabilities:</p>
+  <ul>
+    <li>Load marketing examples from CSV or Google Sheets export.</li>
+    <li>Define quality rubrics in YAML.</li>
+    <li>Run deterministic checks for objective criteria.</li>
+    <li>Run LLM-as-judge checks for qualitative criteria.</li>
+    <li>Store eval runs in SQLite.</li>
+    <li>Generate HTML reports.</li>
+    <li>Provide a local human review UI.</li>
+    <li>Compare human review with machine judgment.</li>
+    <li>Capture human review as structured signals.</li>
+    <li>Group review signals into recurring findings.</li>
+    <li>Export findings as bounded eval targets.</li>
+    <li>Include starter examples for lifecycle email, paid social ads, landing page copy, and SEO/content briefs.</li>
+  </ul>
+
+  <h2>First Use Case</h2>
+  <p>The first fully working example is lifecycle email evaluation.</p>
+  <p>Example dimensions:</p>
+  <ul>
+    <li>Subject line length</li>
+    <li>Body length</li>
+    <li>CTA presence</li>
+    <li>Clarity</li>
+    <li>Audience fit</li>
+    <li>Brand voice</li>
+    <li>Human review required for subjective dimensions</li>
+  </ul>
+
+  <h2>System Components</h2>
+  <p>Core objects:</p>
+  <ul>
+    <li>Rubric</li>
+    <li>RubricDimension</li>
+    <li>EvalCase</li>
+    <li>EvalArtifact</li>
+    <li>EvaluationEngine</li>
+    <li>DimensionResult</li>
+    <li>EvalStore</li>
+    <li>ReviewSignal</li>
+    <li>Finding</li>
+    <li>EvalTarget</li>
+    <li>LLMProvider</li>
+  </ul>
+  <p>Main modules:</p>
+  <ul>
+    <li>CLI runner</li>
+    <li>CSV loader</li>
+    <li>YAML rubric parser</li>
+    <li>Logic checks</li>
+    <li>LLM judge provider interface</li>
+    <li>OpenAI provider</li>
+    <li>SQLite storage</li>
+    <li>HTML report renderer</li>
+    <li>Local review UI</li>
+    <li>Self-improvement loop utilities</li>
+  </ul>
+
+  <h2>LLM Strategy</h2>
+  <p>OpenAI is the first supported production provider.</p>
+  <p>The system uses a lightweight provider interface so users can later add other model gateways without changing the core eval system. This could include Anthropic, Gemini, LiteLLM, LangChain, or internal model gateways.</p>
+
+  <h2>User Workflow</h2>
+  <ol>
+    <li>Clone the repo.</li>
+    <li>Install the CLI locally.</li>
+    <li>Run <code>evalkit doctor</code> to check setup.</li>
+    <li>Run the lifecycle email example.</li>
+    <li>Open the HTML report.</li>
+    <li>Start the local human review UI.</li>
+    <li>Submit human judgments, corrections, and failure reasons.</li>
+    <li>Regenerate the report with calibration metrics.</li>
+    <li>Run <code>evalkit signals</code> to extract structured review signals.</li>
+    <li>Run <code>evalkit findings</code> to group repeated failure patterns.</li>
+    <li>Run <code>evalkit targets</code> to create a bounded improvement task.</li>
+  </ol>
+
+  <h2>Future SaaS Direction - For Vaibhav And Sandy</h2>
+  <p>The open source project can remain a useful local tool while the SaaS product adds:</p>
+  <ul>
+    <li>Hosted dashboards</li>
+    <li>Team workspaces</li>
+    <li>Scheduled eval runs</li>
+    <li>Approval workflows</li>
+    <li>Reviewer assignment</li>
+    <li>Integrations with ESPs, CMSs, ad platforms, and CRM tools</li>
+    <li>Longitudinal quality monitoring</li>
+    <li>Regression alerts</li>
+    <li>Model comparison</li>
+    <li>Permissions and audit trails</li>
+    <li>Production trace ingestion</li>
+    <li>Automatic finding detection</li>
+    <li>Prompt and rubric versioning</li>
+    <li>Regression suites for marketing workflows</li>
+    <li>Human review queues</li>
+    <li>Business outcome correlation with CTR, CVR, reply rate, activation, or pipeline</li>
+  </ul>
+
+  <h2>Positioning</h2>
+  <p>Goldset Evals is the open source quality and learning layer for AI go-to-market teams.</p>
+  <p>Potential tagline:</p>
+  <p class="tagline">Goldset Evals: open source quality control for self-improving AI marketing systems.</p>
+</body>
+</html>

@@ -1,0 +1,23 @@
+name: seo_content_brief_quality
+version: 0.1
+artifact_type: seo_content_brief
+description: Starter rubric for SEO and content briefs.
+dimensions:
+  - name: includes_keyword
+    evaluator: logic
+    description: Brief must include the target keyword.
+    field: body
+    rule: required_terms
+    terms:
+      - ai marketing evals
+
+  - name: search_intent_fit
+    evaluator: llm_judge
+    description: The brief matches the likely intent behind the target query.
+    field: body
+    requires_human_review: true
+
+  - name: differentiation
+    evaluator: llm_judge
+    description: The brief gives the writer a distinct angle rather than generic search advice.
+    field: body

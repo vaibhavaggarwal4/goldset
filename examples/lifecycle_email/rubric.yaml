@@ -1,0 +1,50 @@
+name: lifecycle_email_quality
+version: 0.1
+artifact_type: lifecycle_email
+description: Quality rubric for AI-generated lifecycle emails.
+dimensions:
+  - name: subject_line_length
+    evaluator: logic
+    description: Subject line should stay short enough for inbox scanning.
+    field: subject_line
+    rule: max_chars
+    threshold: 55
+
+  - name: body_length
+    evaluator: logic
+    description: Email body should be concise enough for lifecycle use cases.
+    field: body
+    rule: max_chars
+    threshold: 1200
+
+  - name: has_cta
+    evaluator: logic
+    description: Email should include a clear action for the reader.
+    field: body
+    rule: contains_cta
+    terms:
+      - get started
+      - try
+      - book
+      - learn more
+      - upgrade
+      - reply
+
+  - name: clarity
+    evaluator: llm_judge
+    description: The email communicates the core message quickly and concretely.
+    scale: pass_fail
+    field: body
+
+  - name: audience_fit
+    evaluator: llm_judge
+    description: The email speaks to the stated audience and lifecycle stage.
+    scale: pass_fail
+    field: body
+    requires_human_review: true
+
+  - name: brand_voice
+    evaluator: human_review
+    description: A marketing subject matter expert confirms that the email feels on-brand.
+    scale: pass_fail
+    requires_human_review: true

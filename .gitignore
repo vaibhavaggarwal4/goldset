@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite3
+*.db
+*-report.html
+report.html
+eval-targets/
+.DS_Store
