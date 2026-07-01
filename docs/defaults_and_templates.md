@@ -47,6 +47,13 @@ examples/sample_data/marketing_outputs.csv
 
 This file includes lifecycle email, paid social ad, landing page, and SEO/content brief examples. It is meant for first-run testing and for understanding the expected CSV shape.
 
+Golden set and outcome examples live in:
+
+```text
+examples/golden_sets/
+examples/outcomes/
+```
+
 ## Default Rule Types
 
 Logic rules are deterministic checks. Current rules include:

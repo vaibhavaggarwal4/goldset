@@ -9,7 +9,9 @@ import sys
 
 from evalkit.errors import UserFacingError
 from evalkit.evaluators import EvaluationEngine
+from evalkit.golden import load_golden_set, load_outcomes
 from evalkit.loaders import load_cases_from_csv
+from evalkit.metrics import calculate_calibration_metrics, calculate_outcome_correlations, calculate_reliability_metrics
 from evalkit.providers.factory import make_provider
 from evalkit.reports import render_html_report
 from evalkit.review_ui import serve_review_ui
@@ -87,6 +89,27 @@ def _main() -> None:
     learn_parser.add_argument("--output-dir", default="eval-targets")
     learn_parser.add_argument("--export-targets", action="store_true", help="Export target folders for all generated findings.")
 
+    calibrate_parser = subparsers.add_parser("calibrate", help="Compare evaluator and human judgments against a golden set.")
+    calibrate_parser.add_argument("--db", default="evalkit.sqlite")
+    calibrate_parser.add_argument("--run-id", default="latest")
+    calibrate_parser.add_argument("--golden-set", required=True)
+
+    outcomes_parser = subparsers.add_parser("outcomes", help="Correlate eval pass/fail results with business outcome metrics.")
+    outcomes_parser.add_argument("--db", default="evalkit.sqlite")
+    outcomes_parser.add_argument("--run-id", default="latest")
+    outcomes_parser.add_argument("--outcomes", required=True)
+
+    backtest_parser = subparsers.add_parser("backtest", help="Run an eval on historical data and compare against labels/outcomes.")
+    backtest_parser.add_argument("--rubric", required=True)
+    backtest_parser.add_argument("--input", required=True)
+    backtest_parser.add_argument("--golden-set", required=True)
+    backtest_parser.add_argument("--outcomes")
+    backtest_parser.add_argument("--db", default="evalkit.sqlite")
+    backtest_parser.add_argument("--suite-name", default="Backtest")
+    backtest_parser.add_argument("--provider", default="heuristic", choices=["heuristic", "openai", "ollama"])
+    backtest_parser.add_argument("--model")
+    backtest_parser.add_argument("--report", default="backtest-report.html")
+
     args = parser.parse_args()
     _dispatch(args)
 
@@ -108,6 +131,12 @@ def _dispatch(args: argparse.Namespace) -> None:
         targets(args)
     elif args.command == "learn":
         learn(args)
+    elif args.command == "calibrate":
+        calibrate(args)
+    elif args.command == "outcomes":
+        outcomes(args)
+    elif args.command == "backtest":
+        backtest(args)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -218,6 +247,114 @@ def learn(args: argparse.Namespace) -> None:
         )
         print("Tip: add --export-targets to evalkit learn to create target folders automatically.")
     print(f"Next: refresh your report with evalkit report --db {args.db} --run-id {run_id} --output report.html")
+
+
+def calibrate(args: argparse.Namespace) -> None:
+    store = EvalStore(args.db)
+    run_id = store.latest_run_id() if args.run_id == "latest" else args.run_id
+    store.run(run_id)
+    labels = load_golden_set(args.golden_set)
+    reliability = calculate_reliability_metrics(store.dimension_rows(run_id), labels)
+    calibration = calculate_calibration_metrics(store.dimension_rows(run_id), store.human_review_rows(run_id), labels)
+    _print_reliability(reliability)
+    _print_calibration(calibration)
+
+
+def outcomes(args: argparse.Namespace) -> None:
+    store = EvalStore(args.db)
+    run_id = store.latest_run_id() if args.run_id == "latest" else args.run_id
+    store.run(run_id)
+    outcome_rows = load_outcomes(args.outcomes)
+    correlations = calculate_outcome_correlations(store.case_rows(run_id), store.dimension_rows(run_id), outcome_rows)
+    _print_outcome_correlations(correlations)
+
+
+def backtest(args: argparse.Namespace) -> None:
+    rubric = load_rubric(args.rubric)
+    cases = load_cases_from_csv(args.input, artifact_type=rubric.artifact_type)
+    provider = make_provider(args.provider)
+    engine = EvaluationEngine(provider=provider, model=args.model)
+    store = EvalStore(args.db)
+    run_id = store.create_run(
+        suite_name=args.suite_name,
+        rubric=rubric,
+        provider=provider.name,
+        model=args.model,
+        input_path=args.input,
+    )
+    results = engine.evaluate_cases(cases, rubric)
+    store.save_results(run_id, results)
+    report_path = render_html_report(store, run_id, args.report)
+    print(f"Backtest run complete: {run_id}")
+    print(f"Cases evaluated: {len(cases)}")
+    print(f"HTML report: {Path(report_path).resolve()}")
+    labels = load_golden_set(args.golden_set)
+    reliability = calculate_reliability_metrics(store.dimension_rows(run_id), labels)
+    _print_reliability(reliability)
+    if args.outcomes:
+        outcome_rows = load_outcomes(args.outcomes)
+        correlations = calculate_outcome_correlations(store.case_rows(run_id), store.dimension_rows(run_id), outcome_rows)
+        _print_outcome_correlations(correlations)
+
+
+def _print_reliability(metrics: dict) -> None:
+    print("\nEvaluator Reliability")
+    print(f"Matched golden labels: {metrics['matched_labels']}/{metrics['total_golden_labels']}")
+    if metrics["matched_labels"] < metrics["total_golden_labels"]:
+        print("Note: unmatched labels usually belong to dimensions with no machine result, such as human_review-only dimensions.")
+    _print_classification("Overall", metrics["overall"])
+    if metrics["by_dimension"]:
+        print("\nBy dimension")
+        for dimension_name, values in metrics["by_dimension"].items():
+            _print_classification(f"- {dimension_name}", values)
+
+
+def _print_calibration(metrics: dict) -> None:
+    print("\nCalibration")
+    print(f"Human-machine agreement: {_fmt_pct(metrics['human_machine_agreement'])}")
+    print(f"Human-human pairwise agreement: {_fmt_pct(metrics['human_human_pairwise_agreement'])}")
+    _print_classification("Human vs golden", metrics["human_vs_golden"])
+    if metrics["reviewer_vs_golden"]:
+        print("\nReviewer vs golden")
+        for reviewer, values in metrics["reviewer_vs_golden"].items():
+            _print_classification(f"- {reviewer}", values)
+
+
+def _print_outcome_correlations(correlations: dict) -> None:
+    print("\nBusiness Outcome Correlation")
+    print("Note: r=N/A means there were too few rows or no pass/fail variance for that metric.")
+    print("Overall pass")
+    for metric_name, values in correlations["overall_pass"].items():
+        print(f"- {metric_name}: r={_fmt_num(values['pearson'])}, n={values['n']}")
+    if correlations["by_dimension"]:
+        print("\nBy dimension")
+        for dimension_name, metric_values in correlations["by_dimension"].items():
+            rendered = ", ".join(
+                f"{metric}=r {_fmt_num(values['pearson'])} (n={values['n']})"
+                for metric, values in metric_values.items()
+            )
+            print(f"- {dimension_name}: {rendered}")
+
+
+def _print_classification(label: str, values: dict) -> None:
+    print(
+        f"{label}: total={values['total']}, accuracy={_fmt_pct(values['accuracy'])}, "
+        f"precision={_fmt_pct(values['precision'])}, recall={_fmt_pct(values['recall'])}, "
+        f"FPR={_fmt_pct(values['false_positive_rate'])}, FNR={_fmt_pct(values['false_negative_rate'])}, "
+        f"FP={values['false_positives']}, FN={values['false_negatives']}"
+    )
+
+
+def _fmt_pct(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value * 100:.1f}%"
+
+
+def _fmt_num(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:.3f}"
 
 
 def doctor(args: argparse.Namespace) -> None:

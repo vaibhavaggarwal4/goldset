@@ -16,6 +16,7 @@ Goldset is the working project name. The implementation uses the neutral package
 - `ReviewSignal`: structured evidence produced by expert review.
 - `Finding`: a grouped, recurring failure pattern.
 - `EvalTarget`: a bounded improvement task with regression cases and success criteria.
+- `GoldenLabel`: expert-labeled ground truth for one case and one dimension.
 
 ## Provider Strategy
 
@@ -38,6 +39,8 @@ CSV or Google Sheets export
   -> ReviewSignal[]
   -> Finding[]
   -> EvalTarget
+  -> Golden-set calibration
+  -> Outcome correlation
 ```
 
 ## Self-Improving Loop
@@ -68,3 +71,17 @@ evalkit learn
 ```
 
 Ambiguous cases should stay routed to human review. The goal is not to automate taste away; the goal is to make expert judgment compound.
+
+## Golden Sets And Backtesting
+
+Golden sets are stored as CSVs with one row per `case_id` and `dimension_name`. They let teams compare evaluator outputs against trusted labels.
+
+The CLI exposes:
+
+```bash
+evalkit calibrate
+evalkit outcomes
+evalkit backtest
+```
+
+Backtesting runs a historical dataset through the current rubric/provider, then compares results against golden labels and optional business outcome metrics. This helps teams decide whether a new rubric, prompt, model, or workflow is actually better.

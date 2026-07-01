@@ -1,0 +1,5 @@
+case_id,ctr,activation_rate,reply_rate
+email-001,0.081,0.144,0.012
+email-002,0.064,0.117,0.007
+email-003,0.052,0.083,0.021
+email-004,0.018,0.031,0.002

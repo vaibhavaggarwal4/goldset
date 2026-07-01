@@ -19,3 +19,15 @@ A golden set should include:
 - Examples that expose known landmines
 
 Start with 20 to 50 examples per surface. Expand when human reviewers and LLM judges disagree for reasons the rubric does not explain.
+
+## Golden Set CSV Format
+
+Goldset uses one label per case and dimension:
+
+```csv
+case_id,dimension_name,expected_passed,expected_score,labeler,notes
+email-001,clarity,true,5,expert,Clear message and CTA
+email-001,audience_fit,false,2,expert,Too generic for founder audience
+```
+
+This lets teams measure precision, recall, false positives, false negatives, and per-dimension evaluator reliability.

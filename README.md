@@ -15,6 +15,7 @@ It supports:
 - HTML reports
 - a local human review UI for calibration
 - structured review signals, findings, and eval targets for self-improving workflows
+- golden sets, calibration, evaluator reliability metrics, outcome correlation, and backtesting
 - CSV files, including Google Sheets exports
 - OpenAI and Ollama providers, with a small provider interface for adding others
 
@@ -167,6 +168,56 @@ This exports a task folder under `eval-targets/` with:
 
 The target is meant to be the "hill to climb": a small, evidence-backed task for improving a prompt, rubric, workflow, model route, or product surface.
 
+## Golden Sets, Calibration, And Backtesting
+
+A golden set is a CSV of trusted labels from expert reviewers. It is used to test whether an evaluator is reliable.
+
+Example golden set:
+
+```text
+examples/golden_sets/lifecycle_email_golden_set.csv
+```
+
+Run calibration against an existing eval run:
+
+```bash
+evalkit calibrate \
+  --db evalkit.sqlite \
+  --run-id latest \
+  --golden-set examples/golden_sets/lifecycle_email_golden_set.csv
+```
+
+This reports evaluator reliability metrics such as accuracy, precision, recall, false positive rate, and false negative rate. It also reports calibration metrics such as human-machine agreement, human-human agreement when multiple reviewers exist, and reviewer-vs-golden performance.
+
+To connect eval quality to business outcomes, provide an outcomes CSV:
+
+```text
+examples/outcomes/lifecycle_email_outcomes.csv
+```
+
+Then run:
+
+```bash
+evalkit outcomes \
+  --db evalkit.sqlite \
+  --run-id latest \
+  --outcomes examples/outcomes/lifecycle_email_outcomes.csv
+```
+
+This computes simple Pearson correlations between pass/fail results and numeric outcome metrics such as CTR, activation rate, reply rate, conversion rate, or revenue.
+
+To run a historical backtest in one command:
+
+```bash
+evalkit backtest \
+  --rubric examples/lifecycle_email/rubric.yaml \
+  --input examples/lifecycle_email/sample.csv \
+  --golden-set examples/golden_sets/lifecycle_email_golden_set.csv \
+  --outcomes examples/outcomes/lifecycle_email_outcomes.csv \
+  --provider heuristic \
+  --report backtest-report.html
+```
+
 ## Use Local Open-Source Models
 
 Goldset Evals supports local model judging through Ollama. This avoids sending data to a hosted LLM provider.
@@ -248,6 +299,9 @@ evalkit learn --db evalkit.sqlite --run-id latest
 evalkit signals --db evalkit.sqlite --run-id latest
 evalkit findings --db evalkit.sqlite --run-id latest
 evalkit targets --db evalkit.sqlite --finding-id FINDING_ID
+evalkit calibrate --db evalkit.sqlite --run-id latest --golden-set GOLDEN_SET.csv
+evalkit outcomes --db evalkit.sqlite --run-id latest --outcomes OUTCOMES.csv
+evalkit backtest --rubric RUBRIC.yaml --input DATA.csv --golden-set GOLDEN_SET.csv
 ```
 
 Use debug mode when reporting a bug:
@@ -328,6 +382,42 @@ templates/rubrics/basic_marketing_quality.yaml
 templates/rubrics/lifecycle_email.yaml
 templates/rubrics/paid_social_ad.yaml
 templates/rubrics/landing_page.yaml
+```
+
+## Golden Set Format
+
+Golden sets are CSV files with one row per `case_id` and `dimension_name`.
+
+Required columns:
+
+- `case_id`
+- `dimension_name`
+- `expected_passed`
+
+Optional columns:
+
+- `expected_score`
+- `labeler`
+- `notes`
+
+Example:
+
+```csv
+case_id,dimension_name,expected_passed,expected_score,labeler,notes
+email-001,clarity,true,5,expert,Clear message and CTA
+email-001,audience_fit,false,2,expert,Too generic for founder audience
+```
+
+## Outcomes Format
+
+Outcome CSVs need a `case_id` column and one or more numeric metric columns.
+
+Example:
+
+```csv
+case_id,ctr,activation_rate,reply_rate
+email-001,0.081,0.144,0.012
+email-002,0.064,0.117,0.007
 ```
 
 ## Project Structure
