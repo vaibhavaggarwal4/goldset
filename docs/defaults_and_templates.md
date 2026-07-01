@@ -47,6 +47,26 @@ examples/sample_data/marketing_outputs.csv
 
 This file includes lifecycle email, paid social ad, landing page, and SEO/content brief examples. It is meant for first-run testing and for understanding the expected CSV shape.
 
+Messy export examples live in:
+
+```text
+examples/exports/
+```
+
+Use them with:
+
+```bash
+evalkit inspect-csv --source examples/exports/generic_email_export.csv
+evalkit import --source examples/exports/generic_email_export.csv --mapping templates/mappings/generic_email.yaml --output my_eval/data.csv
+evalkit import-outcomes --source examples/exports/generic_email_results.csv --mapping templates/mappings/generic_outcomes.yaml --output my_eval/outcomes.csv
+```
+
+Mapping templates live in:
+
+```text
+templates/mappings/
+```
+
 Golden set and outcome examples live in:
 
 ```text

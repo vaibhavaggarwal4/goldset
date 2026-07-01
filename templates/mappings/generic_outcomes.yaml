@@ -1,0 +1,7 @@
+# Maps a messy campaign results export into Goldset's canonical outcomes.csv format.
+fields:
+  case_id: campaign_id
+  ctr: click_rate
+  conversion_rate: conversion_rate
+  reply_rate: reply_rate
+  revenue: revenue

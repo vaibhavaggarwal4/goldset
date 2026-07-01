@@ -1,0 +1,24 @@
+# Maps a messy lifecycle/email export into Goldset's canonical data.csv format.
+# Right side values are source CSV column names, constants, or join/coalesce specs.
+fields:
+  case_id: campaign_id
+  artifact_type:
+    constant: lifecycle_email
+  channel:
+    constant: email
+  audience: segment
+  campaign_goal: goal
+  stage: lifecycle_stage
+  input:
+    join:
+      - brief
+      - goal
+      - segment
+    separator: " | "
+  subject_line: subject
+  body: body
+  output:
+    join:
+      - subject
+      - body
+    separator: " "

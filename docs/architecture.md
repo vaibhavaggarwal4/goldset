@@ -28,6 +28,7 @@ This keeps the project small, easier to audit, and friendlier to future SaaS hos
 
 ```text
 CSV or Google Sheets export
+  -> inspect/import mapping
   -> EvalCase[]
   -> Rubric
   -> EvaluationEngine
@@ -81,6 +82,9 @@ The CLI exposes:
 ```bash
 evalkit init
 evalkit suggest-rubric
+evalkit inspect-csv
+evalkit import
+evalkit import-outcomes
 evalkit calibrate
 evalkit outcomes
 evalkit backtest

@@ -1,0 +1,4 @@
+campaign_id,segment,goal,lifecycle_stage,brief,subject,body
+email-101,"Early-stage founders","Activate trial users","trial day 2","Nudge trial users to invite teammates","Bring one teammate in","Your first project is ready. Invite one teammate so the next campaign brief has the right people in the room. Get started from workspace settings."
+email-102,"Marketing operators","Drive reporting feature adoption","feature launch","Announce automatic weekly reports","Your Monday report is ready","Weekly campaign summaries can now be generated automatically. Open the reporting tab and try it on your next campaign."
+email-103,"Inactive founders","Win back inactive users","winback","Recover users inactive for 30 days","A quick way back","Your workspace is still here. Reply with the campaign you want to move forward and we will point you to the fastest next step."

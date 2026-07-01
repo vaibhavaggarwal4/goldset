@@ -11,6 +11,7 @@ from evalkit.errors import UserFacingError
 from evalkit.evaluators import EvaluationEngine
 from evalkit.golden import load_golden_set, load_outcomes
 from evalkit.loaders import load_cases_from_csv
+from evalkit.mapping import import_data, import_outcomes, inspect_csv
 from evalkit.metrics import calculate_calibration_metrics, calculate_outcome_correlations, calculate_reliability_metrics
 from evalkit.providers.factory import make_provider
 from evalkit.reports import render_html_report
@@ -55,6 +56,19 @@ def _main() -> None:
 
     suggest_parser = subparsers.add_parser("suggest-rubric", help="Suggest rubric dimensions for a marketing surface.")
     suggest_parser.add_argument("--surface", required=True, choices=sorted(SUPPORTED_SURFACES))
+
+    inspect_parser = subparsers.add_parser("inspect-csv", help="Inspect a messy export and suggest likely columns.")
+    inspect_parser.add_argument("--source", required=True)
+
+    import_parser = subparsers.add_parser("import", help="Transform a campaign/content CSV into Goldset data.csv format.")
+    import_parser.add_argument("--source", required=True)
+    import_parser.add_argument("--mapping", required=True)
+    import_parser.add_argument("--output", required=True)
+
+    import_outcomes_parser = subparsers.add_parser("import-outcomes", help="Transform a results CSV into Goldset outcomes.csv format.")
+    import_outcomes_parser.add_argument("--source", required=True)
+    import_outcomes_parser.add_argument("--mapping", required=True)
+    import_outcomes_parser.add_argument("--output", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run an evaluation suite.")
     run_parser.add_argument("--rubric", required=True)
@@ -131,6 +145,12 @@ def _dispatch(args: argparse.Namespace) -> None:
         init_workspace(args)
     elif args.command == "suggest-rubric":
         suggest_rubric(args)
+    elif args.command == "inspect-csv":
+        inspect_csv_command(args)
+    elif args.command == "import":
+        import_command(args)
+    elif args.command == "import-outcomes":
+        import_outcomes_command(args)
     elif args.command == "run":
         run(args)
     elif args.command == "report":
@@ -335,6 +355,41 @@ def suggest_rubric(args: argparse.Namespace) -> None:
     for name, evaluator, description in suggest_dimensions(args.surface):
         print(f"- {name} [{evaluator}]: {description}")
     print("\nTip: run evalkit init --surface " f"{args.surface} --name my_eval to create editable files.")
+
+
+def inspect_csv_command(args: argparse.Namespace) -> None:
+    inspection = inspect_csv(args.source)
+    print(f"CSV: {inspection.path}")
+    print(f"Rows: {inspection.row_count}")
+    print(f"Columns: {len(inspection.columns)}")
+    print("\nAll columns:")
+    for column in inspection.columns:
+        print(f"- {column}")
+    _print_column_group("Likely ID columns", inspection.likely_id_columns)
+    _print_column_group("Likely content columns", inspection.likely_content_columns)
+    _print_column_group("Likely outcome columns", inspection.likely_outcome_columns)
+    print("\nNext: copy a template from templates/mappings/ and edit it to match these columns.")
+
+
+def import_command(args: argparse.Namespace) -> None:
+    output = import_data(args.source, args.mapping, args.output)
+    print(f"Imported campaign data: {Path(output).resolve()}")
+    print(f"Next: evalkit run --rubric RUBRIC.yaml --input {output}")
+
+
+def import_outcomes_command(args: argparse.Namespace) -> None:
+    output = import_outcomes(args.source, args.mapping, args.output)
+    print(f"Imported outcome data: {Path(output).resolve()}")
+    print(f"Next: evalkit outcomes --db evalkit.sqlite --run-id latest --outcomes {output}")
+
+
+def _print_column_group(label: str, columns: list[str]) -> None:
+    print(f"\n{label}:")
+    if not columns:
+        print("- none detected")
+        return
+    for column in columns:
+        print(f"- {column}")
 
 
 def _print_reliability(metrics: dict) -> None:

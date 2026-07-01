@@ -66,11 +66,12 @@ Goldset works best when you treat evals as an iterative system, not a one-time s
 1. Install and run the sample.
 2. Define the rubric, or start from suggested dimensions.
 3. Add a golden set of expert-labeled examples. You can skip this at first, but evaluator quality will be harder to trust.
-4. Run evals.
-5. Review failures and add corrections.
-6. Run `evalkit learn`.
-7. Improve the prompt, rubric, workflow, or model.
-8. Backtest against the golden set and outcome data.
+4. Import campaign exports and outcome data if your data is not already in Goldset format.
+5. Run evals.
+6. Review failures and add corrections.
+7. Run `evalkit learn`.
+8. Improve the prompt, rubric, workflow, or model.
+9. Backtest against the golden set and outcome data.
 
 Create an editable workspace:
 
@@ -82,6 +83,22 @@ See suggested dimensions before creating files:
 
 ```bash
 evalkit suggest-rubric --surface lifecycle_email
+```
+
+Inspect and import a messy campaign export:
+
+```bash
+evalkit inspect-csv --source examples/exports/generic_email_export.csv
+
+evalkit import \
+  --source examples/exports/generic_email_export.csv \
+  --mapping templates/mappings/generic_email.yaml \
+  --output my_lifecycle_eval/data.csv
+
+evalkit import-outcomes \
+  --source examples/exports/generic_email_results.csv \
+  --mapping templates/mappings/generic_outcomes.yaml \
+  --output my_lifecycle_eval/outcomes.csv
 ```
 
 You can also test with the broader sample CSV:
@@ -319,6 +336,9 @@ evalkit run \
 evalkit doctor
 evalkit init --surface lifecycle_email --name my_lifecycle_eval
 evalkit suggest-rubric --surface lifecycle_email
+evalkit inspect-csv --source EXPORT.csv
+evalkit import --source EXPORT.csv --mapping MAPPING.yaml --output DATA.csv
+evalkit import-outcomes --source RESULTS.csv --mapping OUTCOME_MAPPING.yaml --output OUTCOMES.csv
 evalkit run --rubric RUBRIC.yaml --input DATA.csv
 evalkit report --db evalkit.sqlite --run-id latest --output report.html
 evalkit review --db evalkit.sqlite --run-id latest --port 8765
@@ -370,6 +390,41 @@ Rubric dimensions can target a specific field:
 ```
 
 Or evaluate the full output by omitting `field`.
+
+## Import Mapping Format
+
+If your campaign export does not match Goldset's CSV format, use a YAML mapping file.
+
+Example:
+
+```yaml
+fields:
+  case_id: campaign_id
+  artifact_type:
+    constant: lifecycle_email
+  subject_line: subject
+  body: body
+  output:
+    join:
+      - subject
+      - body
+    separator: " "
+```
+
+Supported mapping specs:
+
+- `target: source_column`
+- `target: { column: source_column }`
+- `target: { constant: value }`
+- `target: { join: [col_a, col_b], separator: " " }`
+- `target: { coalesce: [first_choice, fallback] }`
+
+Start with:
+
+```text
+templates/mappings/generic_email.yaml
+templates/mappings/generic_outcomes.yaml
+```
 
 ## Rubric Format
 
