@@ -2,7 +2,6 @@
 
 Open source evals and review workflows for AI go-to-market teams.
 
-Goldset is the working project name. The Python package and CLI are called `evalkit` so the code is not coupled to the company or product name.
 
 ## What This Is
 
