@@ -79,6 +79,8 @@ Golden sets are stored as CSVs with one row per `case_id` and `dimension_name`. 
 The CLI exposes:
 
 ```bash
+evalkit init
+evalkit suggest-rubric
 evalkit calibrate
 evalkit outcomes
 evalkit backtest

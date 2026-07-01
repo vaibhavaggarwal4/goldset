@@ -59,6 +59,31 @@ evalkit run \
   --report lifecycle-report.html
 ```
 
+## Recommended Workflow
+
+Goldset works best when you treat evals as an iterative system, not a one-time score.
+
+1. Install and run the sample.
+2. Define the rubric, or start from suggested dimensions.
+3. Add a golden set of expert-labeled examples. You can skip this at first, but evaluator quality will be harder to trust.
+4. Run evals.
+5. Review failures and add corrections.
+6. Run `evalkit learn`.
+7. Improve the prompt, rubric, workflow, or model.
+8. Backtest against the golden set and outcome data.
+
+Create an editable workspace:
+
+```bash
+evalkit init --surface lifecycle_email --name my_lifecycle_eval
+```
+
+See suggested dimensions before creating files:
+
+```bash
+evalkit suggest-rubric --surface lifecycle_email
+```
+
 You can also test with the broader sample CSV:
 
 ```bash
@@ -292,6 +317,8 @@ evalkit run \
 
 ```bash
 evalkit doctor
+evalkit init --surface lifecycle_email --name my_lifecycle_eval
+evalkit suggest-rubric --surface lifecycle_email
 evalkit run --rubric RUBRIC.yaml --input DATA.csv
 evalkit report --db evalkit.sqlite --run-id latest --output report.html
 evalkit review --db evalkit.sqlite --run-id latest --port 8765

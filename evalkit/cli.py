@@ -18,6 +18,7 @@ from evalkit.review_ui import serve_review_ui
 from evalkit.rubrics import load_rubric
 from evalkit.self_improvement import create_eval_target, extract_review_signals, generate_findings
 from evalkit.storage import EvalStore
+from evalkit.workspace import SUPPORTED_SURFACES, create_workspace, suggest_dimensions
 
 
 def main() -> None:
@@ -45,6 +46,15 @@ def _main() -> None:
     doctor_parser = subparsers.add_parser("doctor", help="Check local setup and common configuration.")
     doctor_parser.add_argument("--check-openai", action="store_true", help="Also check OpenAI package and env vars.")
     doctor_parser.add_argument("--check-ollama", action="store_true", help="Also check local Ollama setup.")
+
+    init_parser = subparsers.add_parser("init", help="Create an editable eval workspace from templates.")
+    init_parser.add_argument("--surface", required=True, choices=sorted(SUPPORTED_SURFACES))
+    init_parser.add_argument("--name", required=True)
+    init_parser.add_argument("--output-dir", default=".")
+    init_parser.add_argument("--force", action="store_true")
+
+    suggest_parser = subparsers.add_parser("suggest-rubric", help="Suggest rubric dimensions for a marketing surface.")
+    suggest_parser.add_argument("--surface", required=True, choices=sorted(SUPPORTED_SURFACES))
 
     run_parser = subparsers.add_parser("run", help="Run an evaluation suite.")
     run_parser.add_argument("--rubric", required=True)
@@ -117,6 +127,10 @@ def _main() -> None:
 def _dispatch(args: argparse.Namespace) -> None:
     if args.command == "doctor":
         doctor(args)
+    elif args.command == "init":
+        init_workspace(args)
+    elif args.command == "suggest-rubric":
+        suggest_rubric(args)
     elif args.command == "run":
         run(args)
     elif args.command == "report":
@@ -295,6 +309,32 @@ def backtest(args: argparse.Namespace) -> None:
         outcome_rows = load_outcomes(args.outcomes)
         correlations = calculate_outcome_correlations(store.case_rows(run_id), store.dimension_rows(run_id), outcome_rows)
         _print_outcome_correlations(correlations)
+
+
+def init_workspace(args: argparse.Namespace) -> None:
+    files = create_workspace(
+        surface=args.surface,
+        name=args.name,
+        output_dir=args.output_dir,
+        force=args.force,
+    )
+    print(f"Created eval workspace: {files.root.resolve()}")
+    print(f"- Rubric: {files.rubric}")
+    print(f"- Data CSV: {files.data}")
+    print(f"- Golden set: {files.golden_set}")
+    print(f"- Outcomes: {files.outcomes}")
+    print(f"- Guide: {files.readme}")
+    print("\nSuggested dimensions:")
+    for name, evaluator, description in suggest_dimensions(args.surface):
+        print(f"- {name} [{evaluator}]: {description}")
+    print(f"\nNext: edit {files.rubric}, then run evalkit run --rubric {files.rubric} --input {files.data}")
+
+
+def suggest_rubric(args: argparse.Namespace) -> None:
+    print(f"Suggested rubric dimensions for {args.surface}:")
+    for name, evaluator, description in suggest_dimensions(args.surface):
+        print(f"- {name} [{evaluator}]: {description}")
+    print("\nTip: run evalkit init --surface " f"{args.surface} --name my_eval to create editable files.")
 
 
 def _print_reliability(metrics: dict) -> None:

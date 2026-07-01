@@ -70,6 +70,9 @@ LLM judge and human review dimensions can be edited directly in YAML.
 ## Recommended User Path
 
 1. Run the built-in sample.
-2. Copy the closest rubric template.
-3. Replace sample rows with real campaign outputs.
-4. Tighten thresholds and dimensions after the first few human reviews.
+2. Run `evalkit suggest-rubric --surface lifecycle_email` to inspect suggested dimensions.
+3. Run `evalkit init --surface lifecycle_email --name my_lifecycle_eval` to create editable files.
+4. Copy or edit the closest rubric template.
+5. Replace sample rows with real campaign outputs.
+6. Add expert labels to the generated golden set.
+7. Tighten thresholds and dimensions after the first few human reviews.
