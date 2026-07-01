@@ -20,4 +20,8 @@ def make_provider(name: str) -> LLMProvider:
             raise
 
         return OpenAIProvider()
-    raise UserFacingError(f"Unknown provider '{name}'. Supported providers: heuristic, openai.")
+    if name == "ollama":
+        from evalkit.providers.ollama_provider import OllamaProvider
+
+        return OllamaProvider()
+    raise UserFacingError(f"Unknown provider '{name}'. Supported providers: heuristic, openai, ollama.")

@@ -1,0 +1,27 @@
+name: landing_page_quality
+version: 0.1
+artifact_type: landing_page
+description: Editable default rubric for landing page copy and messaging.
+dimensions:
+  - name: headline_length
+    evaluator: logic
+    description: Headline should be short enough to scan above the fold.
+    field: headline
+    rule: max_chars
+    threshold: 90
+
+  - name: promise_clarity
+    evaluator: llm_judge
+    description: The page makes a specific and credible promise to the target customer.
+    field: body
+    requires_human_review: true
+
+  - name: objection_handling
+    evaluator: llm_judge
+    description: The page anticipates at least one likely buyer concern.
+    field: body
+
+  - name: brand_voice
+    evaluator: human_review
+    description: A human reviewer confirms that the page feels on-brand.
+    requires_human_review: true

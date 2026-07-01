@@ -1,0 +1,39 @@
+name: basic_marketing_quality
+version: 0.1
+artifact_type: marketing_text
+description: A general-purpose editable rubric for AI-generated marketing copy.
+dimensions:
+  - name: output_length
+    evaluator: logic
+    description: Output should be long enough to evaluate, but not wildly overlong.
+    rule: min_chars
+    threshold: 40
+
+  - name: has_cta
+    evaluator: logic
+    description: Output should include a clear next action when appropriate.
+    rule: contains_cta
+    terms:
+      - get started
+      - try
+      - book
+      - learn more
+      - download
+      - reply
+
+  - name: clarity
+    evaluator: llm_judge
+    description: The copy communicates the core message clearly and concretely.
+    scale: pass_fail
+
+  - name: audience_fit
+    evaluator: llm_judge
+    description: The copy speaks to the stated audience and campaign goal.
+    scale: pass_fail
+    requires_human_review: true
+
+  - name: brand_voice
+    evaluator: human_review
+    description: A human reviewer confirms whether the output fits the intended brand voice.
+    scale: pass_fail
+    requires_human_review: true

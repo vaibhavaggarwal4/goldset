@@ -16,17 +16,18 @@ It supports:
 - a local human review UI for calibration
 - structured review signals, findings, and eval targets for self-improving workflows
 - CSV files, including Google Sheets exports
-- OpenAI as the first production LLM provider, with a small provider interface for adding others
+- OpenAI and Ollama providers, with a small provider interface for adding others
 
-The first complete example is lifecycle email. Starter rubrics are also included for paid social ads, landing pages, and SEO/content briefs.
+The first complete example is lifecycle email. Editable default rubrics are also included for general marketing copy, paid social ads, landing pages, and SEO/content briefs.
 
 ## Requirements
 
 - Python 3.10 or newer
 - macOS, Linux, or Windows
 - OpenAI API key only if you want to run real LLM judge calls
+- Ollama only if you want to run local open-source models
 
-You can run the demo without an API key by using the built-in `heuristic` provider.
+You can run the demo without an API key or local model by using the built-in `heuristic` provider.
 
 ## Quickstart
 
@@ -55,6 +56,16 @@ evalkit run \
   --suite-name "Lifecycle Email Evaluation" \
   --provider heuristic \
   --report lifecycle-report.html
+```
+
+You can also test with the broader sample CSV:
+
+```bash
+evalkit run \
+  --rubric templates/rubrics/basic_marketing_quality.yaml \
+  --input examples/sample_data/marketing_outputs.csv \
+  --provider heuristic \
+  --report sample-report.html
 ```
 
 Open the report:
@@ -110,7 +121,21 @@ human review
   -> regression check
 ```
 
-After submitting human reviews, extract structured signals:
+For non-technical users, run the learning loop in one step:
+
+```bash
+evalkit learn --db evalkit.sqlite --run-id latest
+```
+
+To also export improvement task folders automatically:
+
+```bash
+evalkit learn --db evalkit.sqlite --run-id latest --export-targets --owner "growth-team"
+```
+
+Advanced users can run the loop step by step.
+
+Extract structured signals:
 
 ```bash
 evalkit signals --db evalkit.sqlite --run-id latest
@@ -135,6 +160,34 @@ This exports a task folder under `eval-targets/` with:
 - `README.md`
 
 The target is meant to be the "hill to climb": a small, evidence-backed task for improving a prompt, rubric, workflow, model route, or product surface.
+
+## Use Local Open-Source Models
+
+Goldset Evals supports local model judging through Ollama. This avoids sending data to a hosted LLM provider.
+
+Install Ollama, pull a model, and run:
+
+```bash
+ollama pull llama3.1
+export EVALKIT_OLLAMA_MODEL="llama3.1"
+evalkit doctor --check-ollama
+
+evalkit run \
+  --rubric examples/lifecycle_email/rubric.yaml \
+  --input examples/lifecycle_email/sample.csv \
+  --provider ollama \
+  --report lifecycle-report.html
+```
+
+You can also pass the local model directly:
+
+```bash
+evalkit run \
+  --rubric examples/lifecycle_email/rubric.yaml \
+  --input examples/lifecycle_email/sample.csv \
+  --provider ollama \
+  --model llama3.1
+```
 
 ## Use OpenAI
 
@@ -185,6 +238,7 @@ evalkit doctor
 evalkit run --rubric RUBRIC.yaml --input DATA.csv
 evalkit report --db evalkit.sqlite --run-id latest --output report.html
 evalkit review --db evalkit.sqlite --run-id latest --port 8765
+evalkit learn --db evalkit.sqlite --run-id latest
 evalkit signals --db evalkit.sqlite --run-id latest
 evalkit findings --db evalkit.sqlite --run-id latest
 evalkit targets --db evalkit.sqlite --finding-id FINDING_ID
@@ -264,7 +318,10 @@ dimensions:
 Start by copying:
 
 ```text
-examples/lifecycle_email/rubric.yaml
+templates/rubrics/basic_marketing_quality.yaml
+templates/rubrics/lifecycle_email.yaml
+templates/rubrics/paid_social_ad.yaml
+templates/rubrics/landing_page.yaml
 ```
 
 ## Project Structure

@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import sys
 
 from evalkit.errors import UserFacingError
@@ -41,13 +42,14 @@ def _main() -> None:
 
     doctor_parser = subparsers.add_parser("doctor", help="Check local setup and common configuration.")
     doctor_parser.add_argument("--check-openai", action="store_true", help="Also check OpenAI package and env vars.")
+    doctor_parser.add_argument("--check-ollama", action="store_true", help="Also check local Ollama setup.")
 
     run_parser = subparsers.add_parser("run", help="Run an evaluation suite.")
     run_parser.add_argument("--rubric", required=True)
     run_parser.add_argument("--input", required=True)
     run_parser.add_argument("--db", default="evalkit.sqlite")
     run_parser.add_argument("--suite-name", default="Marketing Evaluation")
-    run_parser.add_argument("--provider", default="heuristic", choices=["heuristic", "openai"])
+    run_parser.add_argument("--provider", default="heuristic", choices=["heuristic", "openai", "ollama"])
     run_parser.add_argument("--model")
     run_parser.add_argument("--report", default="report.html")
 
@@ -77,6 +79,14 @@ def _main() -> None:
     targets_parser.add_argument("--owner", default="unassigned")
     targets_parser.add_argument("--output-dir", default="eval-targets")
 
+    learn_parser = subparsers.add_parser("learn", help="Run the self-improvement loop in one friendly step.")
+    learn_parser.add_argument("--db", default="evalkit.sqlite")
+    learn_parser.add_argument("--run-id", default="latest")
+    learn_parser.add_argument("--min-cases", type=int, default=1)
+    learn_parser.add_argument("--owner", default="unassigned")
+    learn_parser.add_argument("--output-dir", default="eval-targets")
+    learn_parser.add_argument("--export-targets", action="store_true", help="Export target folders for all generated findings.")
+
     args = parser.parse_args()
     _dispatch(args)
 
@@ -96,6 +106,8 @@ def _dispatch(args: argparse.Namespace) -> None:
         findings(args)
     elif args.command == "targets":
         targets(args)
+    elif args.command == "learn":
+        learn(args)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -172,6 +184,41 @@ def targets(args: argparse.Namespace) -> None:
         print(f"Target folder: {Path(export_path).resolve()}")
 
 
+def learn(args: argparse.Namespace) -> None:
+    store = EvalStore(args.db)
+    run_id = store.latest_run_id() if args.run_id == "latest" else args.run_id
+    signal_ids = extract_review_signals(store, run_id)
+    print(f"Step 1/3: Found {len(signal_ids)} actionable review signal(s).")
+    if not signal_ids:
+        print("No learning loop yet. Add human reviews with failures, corrections, disagreements, or rubric issues.")
+        print(f"Next: evalkit review --db {args.db} --run-id {run_id}")
+        return
+
+    finding_ids = generate_findings(store, run_id, min_cases=args.min_cases)
+    print(f"Step 2/3: Grouped signals into {len(finding_ids)} finding(s).")
+    for row in store.finding_rows(run_id):
+        print(f"- Finding {row['id']}: {row['title']}")
+
+    if args.export_targets:
+        print("Step 3/3: Exporting eval target folders.")
+        for finding_id in finding_ids:
+            target_id, export_path = create_eval_target(
+                store=store,
+                finding_id=finding_id,
+                owner=args.owner,
+                output_dir=args.output_dir,
+            )
+            print(f"- Target {target_id}: {Path(export_path).resolve() if export_path else 'saved'}")
+    else:
+        first_finding = finding_ids[0]
+        print("Step 3/3: Findings are ready.")
+        print(
+            "Next: create a focused improvement task with "
+            f"evalkit targets --db {args.db} --finding-id {first_finding} --owner \"{args.owner}\""
+        )
+        print("Tip: add --export-targets to evalkit learn to create target folders automatically.")
+
+
 def doctor(args: argparse.Namespace) -> None:
     openai_installed = importlib.util.find_spec("openai") is not None
     checks = [
@@ -186,6 +233,15 @@ def doctor(args: argparse.Namespace) -> None:
                 ("OpenAI package installed", openai_installed, "available" if openai_installed else 'install with python -m pip install -e ".[openai]"'),
                 ("OPENAI_API_KEY set", bool(os.getenv("OPENAI_API_KEY")), "export OPENAI_API_KEY='your_key'"),
                 ("OpenAI model configured", bool(os.getenv("EVALKIT_OPENAI_MODEL")), "export EVALKIT_OPENAI_MODEL='MODEL_NAME' or pass --model"),
+            ]
+        )
+    if args.check_ollama:
+        ollama_installed = shutil.which("ollama") is not None
+        checks.extend(
+            [
+                ("Ollama CLI installed", ollama_installed, "available" if ollama_installed else "install from https://ollama.com"),
+                ("Ollama model configured", bool(os.getenv("EVALKIT_OLLAMA_MODEL")), "export EVALKIT_OLLAMA_MODEL='llama3.1' or pass --model"),
+                ("Ollama base URL", True, os.getenv("EVALKIT_OLLAMA_BASE_URL") or "http://127.0.0.1:11434"),
             ]
         )
 

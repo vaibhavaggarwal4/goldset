@@ -61,4 +61,10 @@ evalkit findings
 evalkit targets
 ```
 
+For non-technical users, the same loop can run through one command:
+
+```bash
+evalkit learn
+```
+
 Ambiguous cases should stay routed to human review. The goal is not to automate taste away; the goal is to make expert judgment compound.

@@ -1,0 +1,28 @@
+name: paid_social_ad_quality
+version: 0.1
+artifact_type: paid_social_ad
+description: Editable default rubric for AI-generated paid social ads.
+dimensions:
+  - name: primary_text_length
+    evaluator: logic
+    description: Primary text should be concise for social placement scanning.
+    field: primary_text
+    rule: max_chars
+    threshold: 280
+
+  - name: has_cta
+    evaluator: logic
+    description: Ad copy should include a clear next action.
+    field: primary_text
+    rule: contains_cta
+
+  - name: clarity
+    evaluator: llm_judge
+    description: The ad communicates one clear idea.
+    field: primary_text
+
+  - name: audience_fit
+    evaluator: llm_judge
+    description: The ad directly addresses the intended customer and their job-to-be-done.
+    field: primary_text
+    requires_human_review: true
