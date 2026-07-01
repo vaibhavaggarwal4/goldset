@@ -100,7 +100,7 @@ Open:
 http://127.0.0.1:8765
 ```
 
-Review dimensions, mark pass/fail, add notes, and submit. Stop the server with `Ctrl+C`.
+Review dimensions, mark pass/fail, add a failure reason or correction when something is wrong, and submit. Stop the server with `Ctrl+C`.
 
 Then regenerate the report so human review metrics are included:
 
@@ -125,6 +125,12 @@ For non-technical users, run the learning loop in one step:
 
 ```bash
 evalkit learn --db evalkit.sqlite --run-id latest
+```
+
+Then refresh the report to see review signals, findings, and eval targets:
+
+```bash
+evalkit report --db evalkit.sqlite --run-id latest --output lifecycle-report.html
 ```
 
 To also export improvement task folders automatically:

@@ -12,13 +12,16 @@ def render_html_report(store: EvalStore, run_id: str, output_path: str | Path) -
     case_rows = store.case_rows(run_id)
     dimension_rows = store.dimension_rows(run_id)
     human_rows = store.human_review_rows(run_id)
+    signal_rows = store.review_signal_rows(run_id)
+    finding_rows = store.finding_rows(run_id)
+    target_rows = store.eval_target_rows(run_id)
     metrics = calculate_metrics(case_rows, dimension_rows, human_rows)
     output = Path(output_path)
-    output.write_text(_html(run, case_rows, dimension_rows, human_rows, metrics))
+    output.write_text(_html(run, case_rows, dimension_rows, human_rows, signal_rows, finding_rows, target_rows, metrics))
     return output
 
 
-def _html(run, case_rows, dimension_rows, human_rows, metrics: dict) -> str:
+def _html(run, case_rows, dimension_rows, human_rows, signal_rows, finding_rows, target_rows, metrics: dict) -> str:
     dimension_table = "\n".join(
         f"<tr><td>{html.escape(name)}</td><td>{_pct(values['pass_rate'])}</td>"
         f"<td>{values['evaluated']}/{values['total']}</td><td>{values['needs_human_review']}</td></tr>"
@@ -34,6 +37,18 @@ def _html(run, case_rows, dimension_rows, human_rows, metrics: dict) -> str:
         "</tr>"
         for row in dimension_rows
     )
+    finding_table = "\n".join(
+        "<tr>"
+        f"<td>{row['id']}</td>"
+        f"<td>{html.escape(row['title'])}</td>"
+        f"<td>{html.escape(row['dimension_name'])}</td>"
+        f"<td>{row['case_count']}</td>"
+        f"<td>{html.escape(row['status'])}</td>"
+        "</tr>"
+        for row in finding_rows
+    )
+    if not finding_table:
+        finding_table = '<tr><td colspan="5">No findings yet. Submit human reviews, then run <code>evalkit learn</code>.</td></tr>'
     review_count = len(human_rows)
     return f"""<!doctype html>
 <html lang="en">
@@ -69,11 +84,19 @@ def _html(run, case_rows, dimension_rows, human_rows, metrics: dict) -> str:
       <div class="metric">Overall Pass Rate<strong>{_pct(metrics['pass_rate'])}</strong></div>
       <div class="metric">Human Reviews<strong>{review_count}</strong></div>
       <div class="metric">Human/Machine Agreement<strong>{_pct(metrics['human_machine_agreement'])}</strong></div>
+      <div class="metric">Review Signals<strong>{len(signal_rows)}</strong></div>
+      <div class="metric">Findings<strong>{len(finding_rows)}</strong></div>
+      <div class="metric">Eval Targets<strong>{len(target_rows)}</strong></div>
     </section>
     <h2>Dimension Pass Rates</h2>
     <table>
       <thead><tr><th>Dimension</th><th>Pass Rate</th><th>Evaluated</th><th>Needs Human Review</th></tr></thead>
       <tbody>{dimension_table}</tbody>
+    </table>
+    <h2>Learning Loop</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Finding</th><th>Dimension</th><th>Cases</th><th>Status</th></tr></thead>
+      <tbody>{finding_table}</tbody>
     </table>
     <h2>Results</h2>
     <table>

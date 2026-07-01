@@ -217,6 +217,7 @@ def learn(args: argparse.Namespace) -> None:
             f"evalkit targets --db {args.db} --finding-id {first_finding} --owner \"{args.owner}\""
         )
         print("Tip: add --export-targets to evalkit learn to create target folders automatically.")
+    print(f"Next: refresh your report with evalkit report --db {args.db} --run-id {run_id} --output report.html")
 
 
 def doctor(args: argparse.Namespace) -> None:

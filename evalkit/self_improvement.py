@@ -52,6 +52,7 @@ def generate_findings(store: EvalStore, run_id: str, min_cases: int = 1) -> list
     """Group recurring review signals into actionable findings."""
 
     store.run(run_id)
+    store.clear_eval_targets(run_id)
     store.clear_findings(run_id)
     signals = store.review_signal_rows(run_id)
     if not signals:

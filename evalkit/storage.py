@@ -320,6 +320,10 @@ class EvalStore:
         self.conn.execute("delete from findings where run_id = ?", (run_id,))
         self.conn.commit()
 
+    def clear_eval_targets(self, run_id: str) -> None:
+        self.conn.execute("delete from eval_targets where run_id = ?", (run_id,))
+        self.conn.commit()
+
     def finding_rows(self, run_id: str) -> list[sqlite3.Row]:
         return list(self.conn.execute("select * from findings where run_id = ? order by case_count desc, id", (run_id,)))
 
