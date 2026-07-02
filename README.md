@@ -99,6 +99,8 @@ evalkit ui --db my_lifecycle_eval/evalkit.sqlite
 
 When you select a file in the workbench, Goldset copies it into a local `.goldset/uploads/` folder and runs from that copy.
 
+Golden sets are best created before you rely on a new rubric, model, or prompt route. Calibration compares evaluator output against those expert labels, so in practice you run a known historical set first, calibrate reliability, then use the setup on new campaign work.
+
 ## Recommended Workflow
 
 Goldset works best when you treat evals as an iterative system, not a one-time score.

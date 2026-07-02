@@ -175,7 +175,15 @@ def _learn(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     store = EvalStore(db_path)
     run_id = _run_id(store, payload)
     signal_ids = extract_review_signals(store, run_id)
-    finding_ids = generate_findings(store, run_id, min_cases=1)
+    if not signal_ids:
+        return (
+            "No review signals yet. Save at least one human review with a failure, correction, disagreement, or rubric issue, then run Learn again.",
+            run_id,
+        )
+    try:
+        finding_ids = generate_findings(store, run_id, min_cases=1)
+    except UserFacingError as exc:
+        return str(exc).replace("\n", " "), run_id
     return f"Learning loop updated. Signals: {len(signal_ids)}. Findings: {len(finding_ids)}.", run_id
 
 
@@ -320,8 +328,8 @@ def _hero_copy(step: str) -> str:
         "results": "Inspect what passed, what failed, and which dimensions need human judgment before you move on.",
         "review": "Turn expert judgment into structured feedback the system can learn from.",
         "learn": "Group review signals into recurring findings and decide what should improve next.",
-        "calibrate": "Use a golden set and outcome data to test whether the evaluator is trustworthy.",
-        "backtest": "Run historical examples as a separate version so you can compare evaluator behavior over time.",
+        "calibrate": "Use a golden set and outcome data to test whether the evaluator is trustworthy. Treat this as a preflight before relying on a rubric or judge.",
+        "backtest": "Run historical examples as a separate version so you can compare evaluator behavior before using it on new campaign work.",
     }
     return copy.get(step, "")
 
@@ -390,14 +398,34 @@ def _filter_runs(runs, category: str):
 
 
 def _run_form() -> str:
-    return """<h2>Run an eval</h2>
+    return f"""<h2>Create workflow</h2>
 <p class="muted">Choose a rubric YAML and an input CSV to evaluate marketing outputs.</p>
 <form method="post" action="/actions/run" class="stack" enctype="multipart/form-data">
-  <label>Rubric YAML file<input name="rubric_file" type="file" accept=".yaml,.yml" required></label>
-  <label>Input CSV file<input name="input_file" type="file" accept=".csv,text/csv" required></label>
   <div class="row">
-    <label>Workflow name<input name="suite_name" value="Lifecycle Email Evaluation"></label>
-    <label>Category<input name="category" value="Lifecycle"></label>
+    <label>Category{_help("Use categories to group related workflows by channel, campaign, or experiment.")}
+      <select name="category">
+        <option value="Lifecycle">Lifecycle</option>
+        <option value="Paid Social">Paid Social</option>
+        <option value="Landing Page">Landing Page</option>
+        <option value="SEO / Content">SEO / Content</option>
+        <option value="Outbound">Outbound</option>
+        <option value="Experiment">Experiment</option>
+        <option value="General">General</option>
+      </select>
+    </label>
+    <label>Workflow name{_help("Name this run like a version: Lifecycle v1, Paid Social hook test, Landing page model comparison.")}
+      <input name="suite_name" value="Lifecycle Email Evaluation">
+    </label>
+  </div>
+  <div class="row">
+    <label>Rubric YAML file{_help("Upload a YAML rubric with dimensions, evaluators, and pass/fail criteria.")}
+      <input name="rubric_file" type="file" accept=".yaml,.yml" required>
+      {_sample_link("examples/lifecycle_email/rubric.yaml", "View sample rubric")}
+    </label>
+    <label>Input CSV file{_help("Upload the marketing outputs you want evaluated. Include case_id plus content fields such as subject_line, body, headline, or output.")}
+      <input name="input_file" type="file" accept=".csv,text/csv" required>
+      {_sample_link("examples/lifecycle_email/sample.csv", "View sample CSV")}
+    </label>
   </div>
   <div class="row">
     <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
@@ -494,7 +522,7 @@ def _learn_panel(run_id: str | None, findings) -> str:
         for row in findings
     )
     if not rows:
-        rows = '<tr><td colspan="4" class="empty">No findings yet. Save reviews, then run the learning loop.</td></tr>'
+        rows = '<tr><td colspan="4" class="empty">No findings yet. Save a review with a failure, correction, disagreement, or rubric issue, then extract signals and findings.</td></tr>'
     return f"""<h2>Learning loop</h2>
 <p class="muted">Turn review feedback into recurring findings that can guide prompt, rubric, workflow, or model improvements.</p>
 {button}
@@ -505,18 +533,24 @@ def _learn_panel(run_id: str | None, findings) -> str:
 def _calibrate_panel(run_id: str | None) -> str:
     disabled = "disabled" if not run_id else ""
     return f"""<h2>Calibrate evaluator</h2>
-<p class="muted">Use a golden set to measure evaluator reliability, then optionally connect pass/fail results to business outcomes.</p>
+<p class="muted">Best practice: create a golden set before trusting a new rubric, model, or prompt route. Calibration still needs an eval run, so use it as a preflight check on known examples, then run new campaign work.</p>
 <div class="grid two">
   <form method="post" action="/actions/calibrate" class="stack" enctype="multipart/form-data">
     <h3>Golden set calibration</h3>
     <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
-    <label>Golden set CSV file<input name="golden_file" type="file" accept=".csv,text/csv" required></label>
+    <label>Golden set CSV file{_help("Upload expert labels for known examples. Goldset compares evaluator decisions against these labels.")}
+      <input name="golden_file" type="file" accept=".csv,text/csv" required>
+      {_sample_link("examples/golden_sets/lifecycle_email_golden_set.csv", "View sample golden set")}
+    </label>
     <button {disabled}>{_icon("target")}<span>Run calibration</span></button>
   </form>
   <form method="post" action="/actions/outcomes" class="stack" enctype="multipart/form-data">
     <h3>Outcome correlation</h3>
     <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
-    <label>Outcomes CSV file<input name="outcomes_file" type="file" accept=".csv,text/csv" required></label>
+    <label>Outcomes CSV file{_help("Upload business metrics by case_id, such as CTR, conversion_rate, reply_rate, or activation_rate.")}
+      <input name="outcomes_file" type="file" accept=".csv,text/csv" required>
+      {_sample_link("examples/outcomes/lifecycle_email_outcomes.csv", "View sample outcomes")}
+    </label>
     <button {disabled}>{_icon("chart")}<span>Calculate correlation</span></button>
   </form>
 </div>
@@ -525,19 +559,38 @@ def _calibrate_panel(run_id: str | None) -> str:
 
 def _backtest_panel(run_id: str | None) -> str:
     return f"""<h2>Backtest a new version</h2>
-<p class="muted">Create a separate historical run when you want to compare another rubric, model, prompt, or dataset version.</p>
+<p class="muted">Use this before trusting a new evaluator setup. Run known historical examples, compare against a golden set, then decide whether the rubric or judge is ready for new work.</p>
 <form method="post" action="/actions/backtest" class="stack backtest" enctype="multipart/form-data">
   <h3>Run historical backtest</h3>
   <div class="row">
-    <label>Rubric YAML file<input name="rubric_file" type="file" accept=".yaml,.yml" required></label>
-    <label>Input CSV file<input name="input_file" type="file" accept=".csv,text/csv" required></label>
+    <label>Rubric YAML file{_help("Upload the rubric version you want to test against historical examples.")}
+      <input name="rubric_file" type="file" accept=".yaml,.yml" required>
+      {_sample_link("examples/lifecycle_email/rubric.yaml", "View sample rubric")}
+    </label>
+    <label>Input CSV file{_help("Upload historical examples with the same case_id values used in your golden set.")}
+      <input name="input_file" type="file" accept=".csv,text/csv" required>
+      {_sample_link("examples/lifecycle_email/sample.csv", "View sample CSV")}
+    </label>
   </div>
   <div class="row">
-    <label>Golden set file<input name="golden_file" type="file" accept=".csv,text/csv" required></label>
+    <label>Golden set file{_help("Upload expert labels so the backtest can report reliability.")}
+      <input name="golden_file" type="file" accept=".csv,text/csv" required>
+      {_sample_link("examples/golden_sets/lifecycle_email_golden_set.csv", "View sample golden set")}
+    </label>
   </div>
   <div class="row">
     <label>Suite name<input name="suite_name" value="Lifecycle Email Backtest"></label>
-    <label>Category<input name="category" value="Lifecycle"></label>
+    <label>Category
+      <select name="category">
+        <option value="Lifecycle">Lifecycle</option>
+        <option value="Paid Social">Paid Social</option>
+        <option value="Landing Page">Landing Page</option>
+        <option value="SEO / Content">SEO / Content</option>
+        <option value="Outbound">Outbound</option>
+        <option value="Experiment">Experiment</option>
+        <option value="General">General</option>
+      </select>
+    </label>
   </div>
   <div class="row">
     <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
@@ -675,6 +728,15 @@ def _num(value: float | None) -> str:
     return f"{value:.3f}"
 
 
+def _help(text: str) -> str:
+    return f'<span class="help" tabindex="0" aria-label="{html.escape(text)}">?</span>'
+
+
+def _sample_link(path: str, label: str) -> str:
+    url = Path(path).resolve().as_uri()
+    return f'<a class="sample-link" href="{html.escape(url)}">{_icon("file")}<span>{html.escape(label)}</span></a>'
+
+
 def _icon(name: str) -> str:
     paths = {
         "plus": '<path d="M12 5v14M5 12h14"/>',
@@ -747,12 +809,18 @@ h3 { margin: 18px 0 8px; font-size: 15px; letter-spacing: 0; }
 .step.active { border-color: #83c7bc; background: #e7f7f1; color: #134e4a; box-shadow: inset 0 0 0 1px rgba(13,118,109,.12); }
 .step.disabled { color: #94a3b8; background: #eef2f7; }
 .error pre { white-space: pre-wrap; background: #fff7ed; border: 1px solid #fed7aa; padding: 14px; border-radius: 8px; }
+.error h1 { font-size: 32px; }
 .muted, .empty { color: var(--muted); line-height: 1.5; }
 .stack { display: grid; gap: 12px; }
 .compact { margin-top: 12px; }
 .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 label { display: grid; gap: 6px; font-weight: 700; font-size: 13px; }
 label.inline { display: flex; align-items: center; gap: 8px; }
+.help { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 5px; border-radius: 999px; background: #eef6f4; color: var(--accent-dark); border: 1px solid #bdddd7; font-size: 12px; font-weight: 900; cursor: help; position: relative; }
+.help:hover::after, .help:focus::after { content: attr(aria-label); position: absolute; z-index: 10; left: 22px; top: 50%; transform: translateY(-50%); width: 260px; padding: 9px 10px; border-radius: 8px; background: #111827; color: white; font-size: 12px; font-weight: 650; line-height: 1.35; box-shadow: var(--shadow); }
+.sample-link { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: var(--accent-dark); text-decoration: none; font-size: 12px; font-weight: 800; }
+.sample-link:hover { text-decoration: underline; }
+.sample-link .icon { width: 14px; height: 14px; }
 input, select, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 11px; font: inherit; background: white; color: var(--ink); transition: border-color .15s ease, box-shadow .15s ease; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: #83c7bc; box-shadow: 0 0 0 4px rgba(13,118,109,.12); }
 input[type="file"] { padding: 9px; background: #f8fafc; border-style: dashed; }
