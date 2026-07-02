@@ -221,7 +221,8 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
     all_runs = _run_rows(store)
     selected_category = _value(query, "category")
     runs = _filter_runs(all_runs, selected_category)
-    run_id = None if _value(query, "step") == "setup" and not _value(query, "run_id") else _selected_run_id(store, runs, query)
+    raw_step = _value(query, "step")
+    run_id = None if raw_step in {"setup", "guide"} and not _value(query, "run_id") else _selected_run_id(store, runs, query)
     step = _active_step(query, run_id)
     notice = _value(query, "notice")
     selected = store.run(run_id) if run_id else None
@@ -233,6 +234,8 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
     review_rows = _review_queue(case_rows, dimension_rows, human_rows) if run_id else []
     failures = [row for row in dimension_rows if row["passed"] == 0][:12]
     content = _step_content(step, selected, metrics, failures, run_id, review_rows, findings)
+    stepper_html = "" if step == "guide" else _stepper(step, run_id)
+    metrics_html = "" if step == "guide" else f'<section class="metrics">{_metric_cards(metrics, len(human_rows), len(findings))}</section>'
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -245,6 +248,7 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
   <aside>
     <div class="brand"><span class="brand-mark">G</span><span><strong>Goldset</strong><small>Marketing evals</small></span></div>
     <a class="new-workflow" href="/?step=setup">{_icon("plus")}<span>New workflow</span></a>
+    {_guide_nav(step)}
     {_category_nav(all_runs, selected_category)}
     {_workflow_nav(runs, run_id)}
     <div class="path-label">Database</div>
@@ -266,8 +270,8 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
       </div>
     </section>
     {_notice(notice)}
-    {_stepper(step, run_id)}
-    <section class="metrics">{_metric_cards(metrics, len(human_rows), len(findings))}</section>
+    {stepper_html}
+    {metrics_html}
     {content}
   </main>
 </body>
@@ -284,7 +288,7 @@ def _render_error(db_path: Path, message: str) -> str:
 
 def _active_step(query: dict[str, list[str]], run_id: str | None) -> str:
     step = _value(query, "step")
-    allowed = {"setup", "results", "review", "learn", "calibrate", "backtest"}
+    allowed = {"guide", "setup", "results", "review", "learn", "calibrate", "backtest"}
     if step in allowed:
         return step
     return "results" if run_id else "setup"
@@ -299,6 +303,8 @@ def _step_content(
     review_rows: list[tuple],
     findings,
 ) -> str:
+    if step == "guide":
+        return f"""<section class="panel focus">{_guide_panel()}</section>"""
     if step == "setup":
         return f"""<section class="panel focus">{_run_form()}</section>"""
     if step == "results":
@@ -315,6 +321,8 @@ def _step_content(
 
 
 def _hero_title(step: str, selected) -> str:
+    if step == "guide":
+        return "How Goldset works."
     if step == "setup":
         return "Start a new evaluation workflow."
     if selected:
@@ -324,6 +332,7 @@ def _hero_title(step: str, selected) -> str:
 
 def _hero_copy(step: str) -> str:
     copy = {
+        "guide": "Use Goldset as a learning loop: define the standard, run evals, review judgment calls, learn from repeated feedback, then calibrate and backtest before scaling.",
         "setup": "Choose the files and model route for one run. Use categories to keep campaigns, channels, and experiments organized.",
         "results": "Inspect what passed, what failed, and which dimensions need human judgment before you move on.",
         "review": "Turn expert judgment into structured feedback the system can learn from.",
@@ -353,6 +362,13 @@ def _stepper(active_step: str, run_id: str | None) -> str:
         else:
             links.append(f'<a class="step {class_name}" href="{_step_url(step, None if step == "setup" else run_id)}">{content}</a>')
     return f'<nav class="stepper">{"".join(links)}</nav>'
+
+
+def _guide_nav(step: str) -> str:
+    selected = "selected" if step == "guide" else ""
+    return f"""<div class="rail-section guide-section">
+  <a class="guide-link {selected}" href="/?step=guide">{_icon("guide")}<span>How to use Goldset</span></a>
+</div>"""
 
 
 def _category_nav(runs, selected_category: str) -> str:
@@ -433,6 +449,66 @@ def _run_form() -> str:
   </div>
   <button>{_icon("play")}<span>Run eval</span></button>
 </form>"""
+
+
+def _guide_panel() -> str:
+    return f"""<div class="guide-intro">
+  <h2>Goldset workflow</h2>
+  <p class="muted">Goldset helps teams turn marketing taste into a repeatable evaluation system. Start lightweight, add golden examples when trust matters, and use every review cycle to improve the rubric, prompt, model route, or workflow.</p>
+</div>
+<div class="guide-grid">
+  <article class="guide-card">
+    <span class="guide-step">1</span>
+    <h3>Define the standard</h3>
+    <p>Create or edit a rubric YAML. Good dimensions are specific, observable, and clear about whether they should be checked by code, an LLM judge, or a human.</p>
+  </article>
+  <article class="guide-card">
+    <span class="guide-step">2</span>
+    <h3>Upload examples</h3>
+    <p>Add a CSV of marketing outputs with a stable case_id. Lifecycle emails, paid ads, landing pages, SEO briefs, and outbound copy can each use their own workflow category.</p>
+  </article>
+  <article class="guide-card">
+    <span class="guide-step">3</span>
+    <h3>Run the eval</h3>
+    <p>Goldset applies deterministic checks first and routes qualitative dimensions to the selected evaluator. The results show pass rates and the dimensions that need attention.</p>
+  </article>
+  <article class="guide-card">
+    <span class="guide-step">4</span>
+    <h3>Review judgment calls</h3>
+    <p>Use human review for subjective or risky dimensions. Reviewers choose pass/fail, a structured score, whether the rubric needs refinement, and the reason behind the judgment.</p>
+  </article>
+  <article class="guide-card">
+    <span class="guide-step">5</span>
+    <h3>Learn from patterns</h3>
+    <p>Extract review signals and group them into recurring findings. Each finding becomes a concrete improvement target for the prompt, rubric, model choice, or workflow.</p>
+  </article>
+  <article class="guide-card">
+    <span class="guide-step">6</span>
+    <h3>Calibrate and backtest</h3>
+    <p>Compare evaluator decisions against a golden set, then backtest on historical examples and outcome data before trusting a new rubric or judge at scale.</p>
+  </article>
+</div>
+<div class="guide-two">
+  <section class="guide-note">
+    <h3>Where golden sets fit</h3>
+    <p>A golden set is best created before you rely on a rubric or judge for real campaigns. If you do not have one yet, you can still run evals, collect human reviews, and promote your clearest reviewed examples into a golden set later.</p>
+    <p>For calibration, run known examples first, compare machine judgment to trusted labels, refine the rubric or judge, then use the system on new marketing work.</p>
+  </section>
+  <section class="guide-note">
+    <h3>File checklist</h3>
+    <ul class="guide-list">
+      <li><strong>Rubric YAML:</strong> the quality dimensions and evaluator routes.</li>
+      <li><strong>Input CSV:</strong> the marketing outputs to evaluate.</li>
+      <li><strong>Golden set CSV:</strong> trusted labels for calibration, optional but recommended.</li>
+      <li><strong>Outcomes CSV:</strong> campaign or business metrics for backtesting.</li>
+    </ul>
+  </section>
+</div>
+<div class="next-actions">
+  <a class="button-link" href="/?step=setup">{_icon("plus")}<span>Start new workflow</span></a>
+  {_sample_link("examples/lifecycle_email/rubric.yaml", "View sample rubric")}
+  {_sample_link("examples/lifecycle_email/sample.csv", "View sample CSV")}
+</div>"""
 
 
 def _runs_panel(runs, selected_run_id: str | None) -> str:
@@ -766,6 +842,7 @@ def _icon(name: str) -> str:
         "report": '<path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5"/><path d="M9 13h6M9 17h6M9 9h2"/>',
         "play": '<path d="m8 5 11 7-11 7z"/>',
         "check": '<path d="m5 12 4 4L19 6"/>',
+        "guide": '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
     }
     return (
         '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" '
@@ -787,6 +864,10 @@ aside { background: var(--rail); color: white; padding: 24px 18px; position: sti
 .brand small { display: block; color: #aeb8c6; margin-top: 3px; font-size: 12px; }
 .new-workflow { display: flex; align-items: center; gap: 8px; background: #e7f7f1; color: #134e4a; text-decoration: none; border-radius: 8px; padding: 10px 12px; font-weight: 850; margin-bottom: 22px; box-shadow: 0 8px 22px rgba(13,118,109,.12); }
 .rail-section { border-top: 1px solid rgba(255,255,255,.12); padding-top: 16px; margin-top: 16px; }
+.guide-section { margin-top: 0; padding-top: 0; border-top: 0; }
+.guide-link { display: flex; align-items: center; gap: 8px; color: #e6edf5; text-decoration: none; border-radius: 8px; padding: 10px; border: 1px solid transparent; font-weight: 800; }
+.guide-link:hover, .guide-link.selected { background: var(--rail-soft); border-color: rgba(255,255,255,.08); }
+.guide-link .icon { color: #f7c948; }
 .rail-section h2 { display: flex; align-items: center; gap: 7px; color: #aeb8c6; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 9px; }
 .rail-section h2 .icon { width: 14px; height: 14px; }
 .rail-empty { color: #aeb8c6; font-size: 13px; margin: 0; line-height: 1.45; }
@@ -863,5 +944,16 @@ tr.selected td { background: #f0fdfa; }
 summary { cursor: pointer; font-weight: 750; color: var(--accent-dark); margin: 10px 0; }
 pre { white-space: pre-wrap; word-break: break-word; background: #f1f5f9; border-radius: 7px; padding: 11px; font-size: 13px; }
 .backtest { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
-@media (max-width: 920px) { body { grid-template-columns: 1fr; } aside { position: static; height: auto; } .two, .row, .metrics, .stepper { grid-template-columns: 1fr; } .hero { display: block; } }
+.guide-intro { max-width: 860px; }
+.guide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.guide-card { border: 1px solid #dbe3ea; border-radius: 8px; padding: 16px; background: #fbfdff; }
+.guide-card h3 { margin-top: 10px; font-size: 16px; }
+.guide-card p, .guide-note p, .guide-list { color: var(--muted); font-size: 14px; line-height: 1.55; }
+.guide-step { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: #e7f7f1; color: var(--accent-dark); font-weight: 900; }
+.guide-two { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 14px; margin-top: 16px; }
+.guide-note { border-top: 1px solid var(--line); padding-top: 14px; }
+.guide-list { margin: 8px 0 0; padding-left: 18px; }
+.guide-list li { margin-bottom: 7px; }
+@media (max-width: 1100px) { .guide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 920px) { body { grid-template-columns: 1fr; } aside { position: static; height: auto; } .two, .row, .metrics, .stepper, .guide-grid, .guide-two { grid-template-columns: 1fr; } .hero { display: block; } }
 """
