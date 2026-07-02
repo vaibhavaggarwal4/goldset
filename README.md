@@ -79,6 +79,7 @@ evalkit ui
 It opens a local web UI for:
 
 - running evals from a rubric and CSV
+- choosing rubric, CSV, golden set, and outcomes files with the native file picker
 - viewing run history and pass rates
 - generating HTML reports
 - reviewing machine judgments
@@ -92,6 +93,8 @@ By default it uses `evalkit.sqlite`. To open another project database:
 ```bash
 evalkit ui --db my_lifecycle_eval/evalkit.sqlite
 ```
+
+When you select a file in the workbench, Goldset copies it into a local `.goldset/uploads/` folder and runs from that copy. You can still paste a path directly when you want to use the example files or a file already inside the repo.
 
 ## Recommended Workflow
 

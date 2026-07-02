@@ -225,4 +225,5 @@ __marimo__/
 report.html
 reports/
 eval-targets/
+.goldset/
 .DS_Store

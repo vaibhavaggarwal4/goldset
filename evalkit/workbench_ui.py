@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from email import policy
+from email.parser import BytesParser
 import html
 import json
 import re
 import socketserver
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -55,7 +58,7 @@ def _make_handler(db_path: Path):
         def do_POST(self) -> None:
             try:
                 length = int(self.headers.get("content-length", "0"))
-                payload = parse_qs(self.rfile.read(length).decode("utf-8"))
+                payload = _parse_payload(self.headers.get("content-type", ""), self.rfile.read(length), db_path)
                 if self.path == "/actions/run":
                     notice, run_id = _run_eval(db_path, payload)
                     self._redirect("/", {"run_id": run_id, "notice": notice})
@@ -104,8 +107,8 @@ def _make_handler(db_path: Path):
 
 
 def _run_eval(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
-    rubric_path = _value(payload, "rubric_path")
-    input_path = _value(payload, "input_path")
+    rubric_path = _file_or_value(payload, "rubric_file", "rubric_path")
+    input_path = _file_or_value(payload, "input_file", "input_path")
     suite_name = _value(payload, "suite_name") or "Marketing Evaluation"
     provider_name = _value(payload, "provider") or "heuristic"
     model = _value(payload, "model") or None
@@ -130,7 +133,7 @@ def _run_eval(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
 
 def _run_backtest(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     notice, run_id = _run_eval(db_path, payload)
-    golden_path = _value(payload, "golden_set")
+    golden_path = _file_or_value(payload, "golden_file", "golden_set")
     if golden_path:
         store = EvalStore(db_path)
         reliability = calculate_reliability_metrics(store.dimension_rows(run_id), load_golden_set(golden_path))
@@ -177,7 +180,7 @@ def _learn(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
 def _calibrate(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     store = EvalStore(db_path)
     run_id = _run_id(store, payload)
-    labels = load_golden_set(_value(payload, "golden_set"))
+    labels = load_golden_set(_file_or_value(payload, "golden_file", "golden_set"))
     reliability = calculate_reliability_metrics(store.dimension_rows(run_id), labels)
     overall = reliability["overall"]
     return (
@@ -194,7 +197,7 @@ def _outcomes(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     correlations = calculate_outcome_correlations(
         store.case_rows(run_id),
         store.dimension_rows(run_id),
-        load_outcomes(_value(payload, "outcomes")),
+        load_outcomes(_file_or_value(payload, "outcomes_file", "outcomes")),
     )
     metric_parts = [
         f"{name}: r={_num(values['pearson'])}, n={values['n']}"
@@ -276,9 +279,11 @@ def _render_error(db_path: Path, message: str) -> str:
 def _run_form() -> str:
     return """<h2>Run an eval</h2>
 <p class="muted">Start with the sample, then swap in your own rubric and CSV.</p>
-<form method="post" action="/actions/run" class="stack">
-  <label>Rubric YAML<input name="rubric_path" value="examples/lifecycle_email/rubric.yaml"></label>
-  <label>Input CSV<input name="input_path" value="examples/lifecycle_email/sample.csv"></label>
+<form method="post" action="/actions/run" class="stack" enctype="multipart/form-data">
+  <label>Rubric YAML file<input name="rubric_file" type="file" accept=".yaml,.yml"></label>
+  <label>Or rubric path<input name="rubric_path" value="examples/lifecycle_email/rubric.yaml"></label>
+  <label>Input CSV file<input name="input_file" type="file" accept=".csv,text/csv"></label>
+  <label>Or input path<input name="input_path" value="examples/lifecycle_email/sample.csv"></label>
   <label>Suite name<input name="suite_name" value="Lifecycle Email Evaluation"></label>
   <div class="row">
     <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
@@ -382,28 +387,38 @@ def _backtest_panel(run_id: str | None) -> str:
     disabled = "disabled" if not run_id else ""
     return f"""<h2>Calibration and backtesting</h2>
 <div class="grid two">
-  <form method="post" action="/actions/calibrate" class="stack">
+  <form method="post" action="/actions/calibrate" class="stack" enctype="multipart/form-data">
     <h3>Calibrate selected run</h3>
     <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
-    <label>Golden set CSV<input name="golden_set" value="examples/golden_sets/lifecycle_email_golden_set.csv"></label>
+    <label>Golden set CSV file<input name="golden_file" type="file" accept=".csv,text/csv"></label>
+    <label>Or golden set path<input name="golden_set" value="examples/golden_sets/lifecycle_email_golden_set.csv"></label>
     <button {disabled}>Run calibration</button>
   </form>
-  <form method="post" action="/actions/outcomes" class="stack">
+  <form method="post" action="/actions/outcomes" class="stack" enctype="multipart/form-data">
     <h3>Outcome correlation</h3>
     <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
-    <label>Outcomes CSV<input name="outcomes" value="examples/outcomes/lifecycle_email_outcomes.csv"></label>
+    <label>Outcomes CSV file<input name="outcomes_file" type="file" accept=".csv,text/csv"></label>
+    <label>Or outcomes path<input name="outcomes" value="examples/outcomes/lifecycle_email_outcomes.csv"></label>
     <button {disabled}>Calculate correlation</button>
   </form>
 </div>
-<form method="post" action="/actions/backtest" class="stack backtest">
+<form method="post" action="/actions/backtest" class="stack backtest" enctype="multipart/form-data">
   <h3>Run historical backtest</h3>
   <div class="row">
-    <label>Rubric YAML<input name="rubric_path" value="examples/lifecycle_email/rubric.yaml"></label>
-    <label>Input CSV<input name="input_path" value="examples/lifecycle_email/sample.csv"></label>
+    <label>Rubric YAML file<input name="rubric_file" type="file" accept=".yaml,.yml"></label>
+    <label>Input CSV file<input name="input_file" type="file" accept=".csv,text/csv"></label>
   </div>
   <div class="row">
-    <label>Golden set<input name="golden_set" value="examples/golden_sets/lifecycle_email_golden_set.csv"></label>
+    <label>Or rubric path<input name="rubric_path" value="examples/lifecycle_email/rubric.yaml"></label>
+    <label>Or input path<input name="input_path" value="examples/lifecycle_email/sample.csv"></label>
+  </div>
+  <div class="row">
+    <label>Golden set file<input name="golden_file" type="file" accept=".csv,text/csv"></label>
+    <label>Or golden set path<input name="golden_set" value="examples/golden_sets/lifecycle_email_golden_set.csv"></label>
+  </div>
+  <div class="row">
     <label>Suite name<input name="suite_name" value="Lifecycle Email Backtest"></label>
+    <label>Report path<input name="report_path" placeholder="optional, defaults to reports/"></label>
   </div>
   <div class="row">
     <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
@@ -461,6 +476,48 @@ def _run_id(store: EvalStore, payload: dict[str, list[str]]) -> str:
 
 def _value(payload: dict[str, list[str]], key: str) -> str:
     return payload.get(key, [""])[0].strip()
+
+
+def _file_or_value(payload: dict[str, list[str]], file_key: str, value_key: str) -> str:
+    return _value(payload, file_key) or _value(payload, value_key)
+
+
+def _parse_payload(content_type: str, body: bytes, db_path: Path) -> dict[str, list[str]]:
+    if not content_type.startswith("multipart/form-data"):
+        return parse_qs(body.decode("utf-8"))
+
+    message = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {content_type}\nMIME-Version: 1.0\n\n".encode("utf-8") + body
+    )
+    payload: dict[str, list[str]] = {}
+    upload_dir = _upload_dir(db_path)
+    for part in message.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        filename = part.get_filename()
+        content = part.get_payload(decode=True) or b""
+        if filename:
+            if not content:
+                continue
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            destination = upload_dir / f"{uuid.uuid4().hex[:8]}-{_safe_filename(filename)}"
+            destination.write_bytes(content)
+            payload.setdefault(name, []).append(str(destination))
+        else:
+            payload.setdefault(name, []).append(content.decode(part.get_content_charset() or "utf-8").strip())
+    return payload
+
+
+def _upload_dir(db_path: Path) -> Path:
+    root = db_path.parent if str(db_path.parent) != "." else Path(".")
+    return root / ".goldset" / "uploads"
+
+
+def _safe_filename(filename: str) -> str:
+    name = Path(filename).name
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip(".-")
+    return safe or "upload"
 
 
 def _notice(value: str) -> str:
