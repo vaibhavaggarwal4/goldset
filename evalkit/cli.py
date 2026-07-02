@@ -173,6 +173,12 @@ def _dispatch(args: argparse.Namespace) -> None:
         backtest(args)
 
 
+def _print_html_report(report_path: str | Path) -> None:
+    resolved = Path(report_path).resolve()
+    print(f"HTML report: {resolved}")
+    print(f"Open report: {resolved.as_uri()}")
+
+
 def run(args: argparse.Namespace) -> None:
     rubric = load_rubric(args.rubric)
     cases = load_cases_from_csv(args.input, artifact_type=rubric.artifact_type)
@@ -191,7 +197,7 @@ def run(args: argparse.Namespace) -> None:
     report_path = render_html_report(store, run_id, args.report)
     print(f"Run complete: {run_id}")
     print(f"Cases evaluated: {len(cases)}")
-    print(f"HTML report: {Path(report_path).resolve()}")
+    _print_html_report(report_path)
     print(f"Next: open the report in a browser, or run evalkit review --db {args.db} --run-id latest")
 
 
@@ -199,7 +205,7 @@ def report(args: argparse.Namespace) -> None:
     store = EvalStore(args.db)
     run_id = store.latest_run_id() if args.run_id == "latest" else args.run_id
     report_path = render_html_report(store, run_id, args.output)
-    print(f"HTML report: {Path(report_path).resolve()}")
+    _print_html_report(report_path)
 
 
 def review(args: argparse.Namespace) -> None:
@@ -321,7 +327,7 @@ def backtest(args: argparse.Namespace) -> None:
     report_path = render_html_report(store, run_id, args.report)
     print(f"Backtest run complete: {run_id}")
     print(f"Cases evaluated: {len(cases)}")
-    print(f"HTML report: {Path(report_path).resolve()}")
+    _print_html_report(report_path)
     labels = load_golden_set(args.golden_set)
     reliability = calculate_reliability_metrics(store.dimension_rows(run_id), labels)
     _print_reliability(reliability)
