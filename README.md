@@ -50,6 +50,14 @@ On Windows PowerShell, activate the virtual environment with:
 If `evalkit doctor` says setup looks good, run the lifecycle email example:
 
 ```bash
+evalkit ui
+```
+
+Open the printed URL, then click **Run eval**. The workbench defaults to the lifecycle email sample.
+
+You can also run the same example from the CLI:
+
+```bash
 evalkit run \
   --rubric examples/lifecycle_email/rubric.yaml \
   --input examples/lifecycle_email/sample.csv \
@@ -59,6 +67,31 @@ evalkit run \
 ```
 
 The command prints a clickable report URL when it finishes.
+
+## Local Workbench
+
+The local workbench is the easiest way to use Goldset without memorizing commands:
+
+```bash
+evalkit ui
+```
+
+It opens a local web UI for:
+
+- running evals from a rubric and CSV
+- viewing run history and pass rates
+- generating HTML reports
+- reviewing machine judgments
+- extracting review signals and findings
+- calibrating against a golden set
+- correlating eval results with business outcomes
+- running historical backtests
+
+By default it uses `evalkit.sqlite`. To open another project database:
+
+```bash
+evalkit ui --db my_lifecycle_eval/evalkit.sqlite
+```
 
 ## Recommended Workflow
 
@@ -333,6 +366,7 @@ evalkit import-outcomes --source RESULTS.csv --mapping OUTCOME_MAPPING.yaml --ou
 evalkit run --rubric RUBRIC.yaml --input DATA.csv
 evalkit report --db evalkit.sqlite --run-id latest
 evalkit review --db evalkit.sqlite --run-id latest --port 8765
+evalkit ui --db evalkit.sqlite --port 8766
 evalkit learn --db evalkit.sqlite --run-id latest
 evalkit signals --db evalkit.sqlite --run-id latest
 evalkit findings --db evalkit.sqlite --run-id latest

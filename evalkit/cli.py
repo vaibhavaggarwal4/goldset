@@ -19,6 +19,7 @@ from evalkit.review_ui import serve_review_ui
 from evalkit.rubrics import load_rubric
 from evalkit.self_improvement import create_eval_target, extract_review_signals, generate_findings
 from evalkit.storage import EvalStore
+from evalkit.workbench_ui import serve_workbench
 from evalkit.workspace import SUPPORTED_SURFACES, create_workspace, suggest_dimensions
 
 
@@ -90,6 +91,11 @@ def _main() -> None:
     review_parser.add_argument("--host", default="127.0.0.1")
     review_parser.add_argument("--port", type=int, default=8765)
 
+    ui_parser = subparsers.add_parser("ui", help="Start the local Goldset Workbench.")
+    ui_parser.add_argument("--db", default="evalkit.sqlite")
+    ui_parser.add_argument("--host", default="127.0.0.1")
+    ui_parser.add_argument("--port", type=int, default=8766)
+
     signals_parser = subparsers.add_parser("signals", help="Extract structured review signals from human reviews.")
     signals_parser.add_argument("--db", default="evalkit.sqlite")
     signals_parser.add_argument("--run-id", default="latest")
@@ -157,6 +163,8 @@ def _dispatch(args: argparse.Namespace) -> None:
         report(args)
     elif args.command == "review":
         review(args)
+    elif args.command == "ui":
+        ui(args)
     elif args.command == "signals":
         signals(args)
     elif args.command == "findings":
@@ -212,6 +220,10 @@ def review(args: argparse.Namespace) -> None:
     store = EvalStore(args.db)
     run_id = store.latest_run_id() if args.run_id == "latest" else args.run_id
     serve_review_ui(store, run_id, args.host, args.port)
+
+
+def ui(args: argparse.Namespace) -> None:
+    serve_workbench(args.db, args.host, args.port)
 
 
 def signals(args: argparse.Namespace) -> None:

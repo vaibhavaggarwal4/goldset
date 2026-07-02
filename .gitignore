@@ -223,5 +223,6 @@ __marimo__/
 *.db
 *-report.html
 report.html
+reports/
 eval-targets/
 .DS_Store
