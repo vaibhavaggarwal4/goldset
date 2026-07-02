@@ -78,8 +78,11 @@ evalkit ui
 
 It opens a local web UI for:
 
+- guided setup, results, review, learning, calibration, and backtesting steps
 - running evals from a rubric and CSV
 - choosing rubric, CSV, golden set, and outcomes files with the native file picker
+- starting new workflows and reviewing previous workflows
+- categorizing runs by campaign, channel, surface, or experiment
 - viewing run history and pass rates
 - generating HTML reports
 - reviewing machine judgments

@@ -28,6 +28,7 @@ class EvalStore:
               provider text not null,
               model text,
               input_path text,
+              category text not null default 'General',
               created_at text not null
             );
 
@@ -110,6 +111,7 @@ class EvalStore:
         self._ensure_column("human_reviews", "correction", "text")
         self._ensure_column("human_reviews", "failure_reason", "text")
         self._ensure_column("human_reviews", "rubric_issue", "integer default 0")
+        self._ensure_column("runs", "category", "text not null default 'General'")
         self.conn.commit()
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
@@ -125,12 +127,13 @@ class EvalStore:
         provider: str,
         model: str | None,
         input_path: str,
+        category: str = "General",
     ) -> str:
         run_id = str(uuid.uuid4())
         self.conn.execute(
             """
-            insert into runs (id, suite_name, rubric_name, rubric_version, provider, model, input_path, created_at)
-            values (?, ?, ?, ?, ?, ?, ?, ?)
+            insert into runs (id, suite_name, rubric_name, rubric_version, provider, model, input_path, category, created_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -140,6 +143,7 @@ class EvalStore:
                 provider,
                 model,
                 input_path,
+                category or "General",
                 datetime.now(timezone.utc).isoformat(),
             ),
         )

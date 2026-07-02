@@ -61,25 +61,25 @@ def _make_handler(db_path: Path):
                 payload = _parse_payload(self.headers.get("content-type", ""), self.rfile.read(length), db_path)
                 if self.path == "/actions/run":
                     notice, run_id = _run_eval(db_path, payload)
-                    self._redirect("/", {"run_id": run_id, "notice": notice})
+                    self._redirect("/", {"run_id": run_id, "step": "results", "notice": notice})
                 elif self.path == "/actions/backtest":
                     notice, run_id = _run_backtest(db_path, payload)
-                    self._redirect("/", {"run_id": run_id, "notice": notice})
+                    self._redirect("/", {"run_id": run_id, "step": "backtest", "notice": notice})
                 elif self.path == "/actions/report":
                     notice, run_id = _render_report(db_path, payload)
-                    self._redirect("/", {"run_id": run_id, "notice": notice})
+                    self._redirect("/", {"run_id": run_id, "step": _value(payload, "step") or "results", "notice": notice})
                 elif self.path == "/actions/review":
                     notice, run_id = _save_review(db_path, payload)
-                    self._redirect("/", {"run_id": run_id, "notice": notice})
+                    self._redirect("/", {"run_id": run_id, "step": "review", "notice": notice})
                 elif self.path == "/actions/learn":
                     notice, run_id = _learn(db_path, payload)
-                    self._redirect("/", {"run_id": run_id, "notice": notice})
+                    self._redirect("/", {"run_id": run_id, "step": "learn", "notice": notice})
                 elif self.path == "/actions/calibrate":
                     notice, run_id = _calibrate(db_path, payload)
-                    self._redirect("/", {"run_id": run_id, "notice": notice})
+                    self._redirect("/", {"run_id": run_id, "step": "calibrate", "notice": notice})
                 elif self.path == "/actions/outcomes":
                     notice, run_id = _outcomes(db_path, payload)
-                    self._redirect("/", {"run_id": run_id, "notice": notice})
+                    self._redirect("/", {"run_id": run_id, "step": "calibrate", "notice": notice})
                 else:
                     self.send_error(404)
             except UserFacingError as exc:
@@ -110,6 +110,7 @@ def _run_eval(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     rubric_path = _required_file(payload, "rubric_file", "rubric YAML")
     input_path = _required_file(payload, "input_file", "input CSV")
     suite_name = _value(payload, "suite_name") or "Marketing Evaluation"
+    category = _value(payload, "category") or "Lifecycle"
     provider_name = _value(payload, "provider") or "heuristic"
     model = _value(payload, "model") or None
     report_path = _value(payload, "report_path") or None
@@ -125,6 +126,7 @@ def _run_eval(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
         provider=provider.name,
         model=model,
         input_path=input_path,
+        category=category,
     )
     store.save_results(run_id, engine.evaluate_cases(cases, rubric))
     report = render_html_report(store, run_id, report_path)
@@ -208,8 +210,11 @@ def _outcomes(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
 
 def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
     store = EvalStore(db_path)
-    runs = _run_rows(store)
-    run_id = _selected_run_id(store, runs, query)
+    all_runs = _run_rows(store)
+    selected_category = _value(query, "category")
+    runs = _filter_runs(all_runs, selected_category)
+    run_id = None if _value(query, "step") == "setup" and not _value(query, "run_id") else _selected_run_id(store, runs, query)
+    step = _active_step(query, run_id)
     notice = _value(query, "notice")
     selected = store.run(run_id) if run_id else None
     case_rows = store.case_rows(run_id) if run_id else []
@@ -219,6 +224,7 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
     findings = store.finding_rows(run_id) if run_id else []
     review_rows = _review_queue(case_rows, dimension_rows, human_rows) if run_id else []
     failures = [row for row in dimension_rows if row["passed"] == 0][:12]
+    content = _step_content(step, selected, metrics, failures, run_id, review_rows, findings)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -230,39 +236,31 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
 <body>
   <aside>
     <div class="brand">Goldset</div>
-    <nav>
-      <a href="#run">Run</a>
-      <a href="#results">Results</a>
-      <a href="#review">Review</a>
-      <a href="#learn">Learn</a>
-      <a href="#backtest">Backtest</a>
-    </nav>
+    <a class="new-workflow" href="/?step=setup">New workflow</a>
+    {_category_nav(all_runs, selected_category)}
+    {_workflow_nav(runs, run_id)}
     <div class="path-label">Database</div>
     <code>{html.escape(str(db_path.resolve()))}</code>
   </aside>
   <main>
     <section class="hero">
       <div>
-        <p class="eyebrow">Local AI marketing evals workbench</p>
-        <h1>Evaluate, review, and improve AI-generated marketing work.</h1>
+        <p class="eyebrow">Guided eval workflow</p>
+        <h1>{_hero_title(step, selected)}</h1>
+        <p class="hero-copy">{_hero_copy(step)}</p>
       </div>
       <div class="hero-actions">
         <form method="post" action="/actions/report">
           <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
+          <input type="hidden" name="step" value="{html.escape(step)}">
           <button {"disabled" if not run_id else ""}>Generate report</button>
         </form>
       </div>
     </section>
     {_notice(notice)}
+    {_stepper(step, run_id)}
     <section class="metrics">{_metric_cards(metrics, len(human_rows), len(findings))}</section>
-    <div class="grid two">
-      <section id="run" class="panel">{_run_form()}</section>
-      <section class="panel">{_runs_panel(runs, run_id)}</section>
-    </div>
-    <section id="results" class="panel">{_results_panel(selected, metrics, failures)}</section>
-    <section id="review" class="panel">{_review_panel(run_id, review_rows)}</section>
-    <section id="learn" class="panel">{_learn_panel(run_id, findings)}</section>
-    <section id="backtest" class="panel">{_backtest_panel(run_id)}</section>
+    {content}
   </main>
 </body>
 </html>"""
@@ -276,13 +274,130 @@ def _render_error(db_path: Path, message: str) -> str:
 </html>"""
 
 
+def _active_step(query: dict[str, list[str]], run_id: str | None) -> str:
+    step = _value(query, "step")
+    allowed = {"setup", "results", "review", "learn", "calibrate", "backtest"}
+    if step in allowed:
+        return step
+    return "results" if run_id else "setup"
+
+
+def _step_content(
+    step: str,
+    selected,
+    metrics: dict | None,
+    failures,
+    run_id: str | None,
+    review_rows: list[tuple],
+    findings,
+) -> str:
+    if step == "setup":
+        return f"""<section class="panel focus">{_run_form()}</section>"""
+    if step == "results":
+        return f"""<section class="panel focus">{_results_panel(selected, metrics, failures)}</section>"""
+    if step == "review":
+        return f"""<section class="panel focus">{_review_panel(run_id, review_rows)}</section>"""
+    if step == "learn":
+        return f"""<section class="panel focus">{_learn_panel(run_id, findings)}</section>"""
+    if step == "calibrate":
+        return f"""<section class="panel focus">{_calibrate_panel(run_id)}</section>"""
+    if step == "backtest":
+        return f"""<section class="panel focus">{_backtest_panel(run_id)}</section>"""
+    return f"""<section class="panel focus">{_run_form()}</section>"""
+
+
+def _hero_title(step: str, selected) -> str:
+    if step == "setup":
+        return "Start a new evaluation workflow."
+    if selected:
+        return html.escape(selected["suite_name"])
+    return "Evaluate, review, and improve AI-generated marketing work."
+
+
+def _hero_copy(step: str) -> str:
+    copy = {
+        "setup": "Choose the files and model route for one run. Use categories to keep campaigns, channels, and experiments organized.",
+        "results": "Inspect what passed, what failed, and which dimensions need human judgment before you move on.",
+        "review": "Turn expert judgment into structured feedback the system can learn from.",
+        "learn": "Group review signals into recurring findings and decide what should improve next.",
+        "calibrate": "Use a golden set and outcome data to test whether the evaluator is trustworthy.",
+        "backtest": "Run historical examples as a separate version so you can compare evaluator behavior over time.",
+    }
+    return copy.get(step, "")
+
+
+def _stepper(active_step: str, run_id: str | None) -> str:
+    steps = [
+        ("setup", "Setup"),
+        ("results", "Results"),
+        ("review", "Review"),
+        ("learn", "Learn"),
+        ("calibrate", "Calibrate"),
+        ("backtest", "Backtest"),
+    ]
+    links = []
+    for step, label in steps:
+        disabled = step != "setup" and not run_id
+        class_name = "active" if step == active_step else ""
+        if disabled:
+            links.append(f'<span class="step disabled">{label}</span>')
+        else:
+            links.append(f'<a class="step {class_name}" href="{_step_url(step, None if step == "setup" else run_id)}">{label}</a>')
+    return f'<nav class="stepper">{"".join(links)}</nav>'
+
+
+def _category_nav(runs, selected_category: str) -> str:
+    counts: dict[str, int] = {}
+    for row in runs:
+        category = row["category"] or "General"
+        counts[category] = counts.get(category, 0) + 1
+    if not counts:
+        return '<div class="rail-section"><h2>Categories</h2><p class="rail-empty">No workflows yet.</p></div>'
+    all_class = "selected" if not selected_category else ""
+    all_item = f'<a class="{all_class}" href="/"><span>All</span><strong>{len(runs)}</strong></a>'
+    items = "\n".join(
+        f'<a class="{"selected" if category == selected_category else ""}" href="/?category={urlencode({"": category})[1:]}"><span>{html.escape(category)}</span><strong>{count}</strong></a>'
+        for category, count in sorted(counts.items())
+    )
+    return f'<div class="rail-section"><h2>Categories</h2><div class="category-list">{all_item}{items}</div></div>'
+
+
+def _workflow_nav(runs, selected_run_id: str | None) -> str:
+    if not runs:
+        return '<div class="rail-section"><h2>Previous workflows</h2><p class="rail-empty">Run your first eval to create history.</p></div>'
+    rows = "\n".join(
+        f"""<a class="workflow-link {"selected" if row['id'] == selected_run_id else ""}" href="{_step_url("results", row['id'])}">
+  <span>{html.escape(row['suite_name'])}</span>
+  <small>{html.escape(row['category'] or 'General')} · {html.escape(row['created_at'][:10])}</small>
+</a>"""
+        for row in runs
+    )
+    return f'<div class="rail-section"><h2>Previous workflows</h2><div class="workflow-list">{rows}</div></div>'
+
+
+def _step_url(step: str, run_id: str | None) -> str:
+    params = {"step": step}
+    if run_id:
+        params["run_id"] = run_id
+    return f"/?{urlencode(params)}"
+
+
+def _filter_runs(runs, category: str):
+    if not category:
+        return runs
+    return [row for row in runs if (row["category"] or "General") == category]
+
+
 def _run_form() -> str:
     return """<h2>Run an eval</h2>
 <p class="muted">Choose a rubric YAML and an input CSV to evaluate marketing outputs.</p>
 <form method="post" action="/actions/run" class="stack" enctype="multipart/form-data">
   <label>Rubric YAML file<input name="rubric_file" type="file" accept=".yaml,.yml" required></label>
   <label>Input CSV file<input name="input_file" type="file" accept=".csv,text/csv" required></label>
-  <label>Suite name<input name="suite_name" value="Lifecycle Email Evaluation"></label>
+  <div class="row">
+    <label>Workflow name<input name="suite_name" value="Lifecycle Email Evaluation"></label>
+    <label>Category<input name="category" value="Lifecycle"></label>
+  </div>
   <div class="row">
     <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
     <label>Model<input name="model" placeholder="optional"></label>
@@ -308,7 +423,7 @@ def _runs_panel(runs, selected_run_id: str | None) -> str:
 
 def _results_panel(selected, metrics: dict | None, failures) -> str:
     if not selected or not metrics:
-        return '<h2>Results</h2><p class="empty">Run an eval to see quality metrics.</p>'
+        return f'<h2>Results</h2><p class="empty">Start with setup to create a run.</p><p><a class="button-link" href="{_step_url("setup", None)}">Start setup</a></p>'
     dimensions = "\n".join(
         f"<tr><td>{html.escape(name)}</td><td>{_pct(values['pass_rate'])}</td><td>{values['evaluated']}/{values['total']}</td><td>{values['needs_human_review']}</td></tr>"
         for name, values in metrics["by_dimension"].items()
@@ -324,16 +439,19 @@ def _results_panel(selected, metrics: dict | None, failures) -> str:
 <h3>Dimension pass rates</h3>
 <table><thead><tr><th>Dimension</th><th>Pass rate</th><th>Evaluated</th><th>Human review</th></tr></thead><tbody>{dimensions}</tbody></table>
 <h3>Failures to inspect</h3>
-<table><thead><tr><th>Case</th><th>Dimension</th><th>Rationale</th></tr></thead><tbody>{failure_rows}</tbody></table>"""
+<table><thead><tr><th>Case</th><th>Dimension</th><th>Rationale</th></tr></thead><tbody>{failure_rows}</tbody></table>
+<div class="next-actions"><a class="button-link" href="{_step_url("review", selected['id'])}">Start human review</a><a class="secondary-link" href="{_step_url("calibrate", selected['id'])}">Calibrate evaluator</a></div>"""
 
 
 def _review_panel(run_id: str | None, review_rows: list[tuple]) -> str:
     if not run_id:
-        return '<h2>Human review</h2><p class="empty">Run an eval to create a review queue.</p>'
+        return f'<h2>Human review</h2><p class="empty">Run an eval to create a review queue.</p><p><a class="button-link" href="{_step_url("setup", None)}">Start setup</a></p>'
     cards = "\n".join(_review_card(run_id, case, dimension) for case, dimension in review_rows[:8])
     if not cards:
-        cards = '<p class="empty">No dimensions currently require human review.</p>'
-    return f"<h2>Human review queue</h2>{cards}"
+        cards = f'<p class="empty">No dimensions currently require human review.</p><p><a class="button-link" href="{_step_url("learn", run_id)}">Extract findings</a></p>'
+    return f"""<h2>Human review queue</h2>
+<p class="muted">Review the cases where human judgment matters most. Saved reviews disappear from the queue so progress is visible.</p>
+{cards}"""
 
 
 def _review_card(run_id: str, case, dimension) -> str:
@@ -367,7 +485,9 @@ def _review_card(run_id: str, case, dimension) -> str:
 
 
 def _learn_panel(run_id: str | None, findings) -> str:
-    button = f"""<form method="post" action="/actions/learn"><input type="hidden" name="run_id" value="{html.escape(run_id or '')}"><button {"disabled" if not run_id else ""}>Extract signals and findings</button></form>"""
+    if not run_id:
+        return f'<h2>Learning loop</h2><p class="empty">Run and review an eval before extracting findings.</p><p><a class="button-link" href="{_step_url("setup", None)}">Start setup</a></p>'
+    button = f"""<form method="post" action="/actions/learn"><input type="hidden" name="run_id" value="{html.escape(run_id)}"><button>Extract signals and findings</button></form>"""
     rows = "\n".join(
         f"<tr><td>{row['id']}</td><td>{html.escape(row['title'])}</td><td>{html.escape(row['dimension_name'])}</td><td>{row['case_count']}</td></tr>"
         for row in findings
@@ -377,15 +497,17 @@ def _learn_panel(run_id: str | None, findings) -> str:
     return f"""<h2>Learning loop</h2>
 <p class="muted">Turn review feedback into recurring findings that can guide prompt, rubric, workflow, or model improvements.</p>
 {button}
-<table><thead><tr><th>ID</th><th>Finding</th><th>Dimension</th><th>Cases</th></tr></thead><tbody>{rows}</tbody></table>"""
+<table><thead><tr><th>ID</th><th>Finding</th><th>Dimension</th><th>Cases</th></tr></thead><tbody>{rows}</tbody></table>
+<div class="next-actions"><a class="button-link" href="{_step_url("calibrate", run_id)}">Calibrate evaluator</a><a class="secondary-link" href="{_step_url("backtest", run_id)}">Run backtest</a></div>"""
 
 
-def _backtest_panel(run_id: str | None) -> str:
+def _calibrate_panel(run_id: str | None) -> str:
     disabled = "disabled" if not run_id else ""
-    return f"""<h2>Calibration and backtesting</h2>
+    return f"""<h2>Calibrate evaluator</h2>
+<p class="muted">Use a golden set to measure evaluator reliability, then optionally connect pass/fail results to business outcomes.</p>
 <div class="grid two">
   <form method="post" action="/actions/calibrate" class="stack" enctype="multipart/form-data">
-    <h3>Calibrate selected run</h3>
+    <h3>Golden set calibration</h3>
     <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
     <label>Golden set CSV file<input name="golden_file" type="file" accept=".csv,text/csv" required></label>
     <button {disabled}>Run calibration</button>
@@ -397,6 +519,12 @@ def _backtest_panel(run_id: str | None) -> str:
     <button {disabled}>Calculate correlation</button>
   </form>
 </div>
+<div class="next-actions"><a class="button-link" href="{_step_url("backtest", run_id)}">Run historical backtest</a></div>"""
+
+
+def _backtest_panel(run_id: str | None) -> str:
+    return f"""<h2>Backtest a new version</h2>
+<p class="muted">Create a separate historical run when you want to compare another rubric, model, prompt, or dataset version.</p>
 <form method="post" action="/actions/backtest" class="stack backtest" enctype="multipart/form-data">
   <h3>Run historical backtest</h3>
   <div class="row">
@@ -408,6 +536,7 @@ def _backtest_panel(run_id: str | None) -> str:
   </div>
   <div class="row">
     <label>Suite name<input name="suite_name" value="Lifecycle Email Backtest"></label>
+    <label>Category<input name="category" value="Lifecycle"></label>
   </div>
   <div class="row">
     <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
@@ -552,9 +681,17 @@ def _css() -> str:
 body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
 aside { background: #16211f; color: white; padding: 26px 22px; position: sticky; top: 0; height: 100vh; overflow: auto; }
 .brand { font-size: 22px; font-weight: 800; margin-bottom: 28px; }
-nav { display: grid; gap: 6px; margin-bottom: 28px; }
-nav a { color: #d9f4ee; text-decoration: none; padding: 9px 10px; border-radius: 7px; }
-nav a:hover { background: rgba(255,255,255,.09); }
+.new-workflow { display: block; background: #e7f7f1; color: #134e4a; text-decoration: none; border-radius: 7px; padding: 10px 12px; font-weight: 800; margin-bottom: 22px; }
+.rail-section { border-top: 1px solid rgba(255,255,255,.14); padding-top: 16px; margin-top: 16px; }
+.rail-section h2 { color: #9cc9c0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+.rail-empty { color: #9cc9c0; font-size: 13px; margin: 0; }
+.category-list, .workflow-list { display: grid; gap: 6px; }
+.category-list a, .workflow-link { color: #d9f4ee; text-decoration: none; border-radius: 7px; padding: 9px 10px; }
+.category-list a { display: flex; justify-content: space-between; align-items: center; }
+.category-list a:hover, .workflow-link:hover, .category-list a.selected, .workflow-link.selected { background: rgba(255,255,255,.09); }
+.workflow-link { display: grid; gap: 3px; }
+.workflow-link span { font-weight: 750; }
+.workflow-link small { color: #9cc9c0; }
 code { display: block; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: inherit; background: rgba(255,255,255,.09); border-radius: 7px; padding: 9px; }
 .path-label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #9cc9c0; margin-bottom: 8px; }
 main { padding: 30px; max-width: 1280px; width: 100%; }
@@ -562,6 +699,7 @@ main { padding: 30px; max-width: 1280px; width: 100%; }
 .hero { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 18px; }
 .eyebrow { margin: 0 0 8px; color: var(--accent-dark); font-weight: 800; text-transform: uppercase; font-size: 12px; letter-spacing: .08em; }
 h1 { margin: 0; max-width: 760px; font-size: 34px; line-height: 1.08; letter-spacing: 0; }
+.hero-copy { max-width: 760px; margin: 10px 0 0; color: var(--muted); font-size: 16px; }
 h2 { margin: 0 0 8px; font-size: 20px; letter-spacing: 0; }
 h3 { margin: 18px 0 8px; font-size: 15px; letter-spacing: 0; }
 .grid { display: grid; gap: 16px; }
@@ -572,7 +710,12 @@ h3 { margin: 18px 0 8px; font-size: 15px; letter-spacing: 0; }
 .metric span { color: var(--muted); font-size: 13px; }
 .metric strong { display: block; font-size: 28px; margin-top: 5px; }
 .panel { padding: 18px; margin-bottom: 16px; }
+.focus { padding: 22px; }
 .notice { background: #e7f7f1; border: 1px solid #9bd8c6; color: #134e4a; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; }
+.stepper { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 18px 0; }
+.step { text-align: center; text-decoration: none; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); padding: 10px 8px; font-weight: 800; font-size: 13px; }
+.step.active { border-color: #0f766e; background: #e7f7f1; color: #134e4a; }
+.step.disabled { color: #94a3b8; background: #eef2f7; }
 .error pre { white-space: pre-wrap; background: #fff7ed; border: 1px solid #fed7aa; padding: 14px; border-radius: 8px; }
 .muted, .empty { color: var(--muted); }
 .stack { display: grid; gap: 12px; }
@@ -585,6 +728,10 @@ textarea { min-height: 70px; resize: vertical; }
 button { border: 0; border-radius: 7px; background: var(--accent); color: white; padding: 10px 13px; font-weight: 800; cursor: pointer; width: fit-content; }
 button:hover { background: var(--accent-dark); }
 button:disabled { background: #94a3b8; cursor: not-allowed; }
+.next-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+.button-link, .secondary-link { display: inline-block; border-radius: 7px; padding: 10px 13px; font-weight: 800; text-decoration: none; }
+.button-link { background: var(--accent); color: white; }
+.secondary-link { border: 1px solid var(--line); color: var(--accent-dark); background: white; }
 table { width: 100%; border-collapse: collapse; margin-top: 10px; }
 th, td { text-align: left; vertical-align: top; border-bottom: 1px solid #e5e7eb; padding: 10px 9px; font-size: 14px; }
 th { color: #475569; background: #f8fafc; }
@@ -594,5 +741,5 @@ tr.selected td { background: #f0fdfa; }
 summary { cursor: pointer; font-weight: 750; color: var(--accent-dark); margin: 10px 0; }
 pre { white-space: pre-wrap; word-break: break-word; background: #f1f5f9; border-radius: 7px; padding: 11px; font-size: 13px; }
 .backtest { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
-@media (max-width: 920px) { body { grid-template-columns: 1fr; } aside { position: static; height: auto; } .two, .row, .metrics { grid-template-columns: 1fr; } .hero { display: block; } }
+@media (max-width: 920px) { body { grid-template-columns: 1fr; } aside { position: static; height: auto; } .two, .row, .metrics, .stepper { grid-template-columns: 1fr; } .hero { display: block; } }
 """
