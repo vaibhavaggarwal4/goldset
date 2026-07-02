@@ -21,7 +21,7 @@ class OllamaProvider:
         if not resolved_model:
             raise UserFacingError(
                 "No Ollama judge model was provided.\n"
-                "Fix: pass --model MODEL_NAME or export EVALKIT_OLLAMA_MODEL='MODEL_NAME'.\n"
+                "Fix: enter a model in the workbench, pass --model MODEL_NAME, or export EVALKIT_OLLAMA_MODEL='MODEL_NAME'.\n"
                 "Example: ollama pull llama3.1 && evalkit run --provider ollama --model llama3.1 ..."
             )
 

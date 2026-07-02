@@ -4,6 +4,7 @@ from email import policy
 from email.parser import BytesParser
 import html
 import json
+import os
 import re
 import socketserver
 import uuid
@@ -113,11 +114,13 @@ def _run_eval(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     category = _value(payload, "category") or "Lifecycle"
     provider_name = _value(payload, "provider") or "heuristic"
     model = _value(payload, "model") or None
+    openai_api_key = _value(payload, "openai_api_key") or None
+    ollama_base_url = _value(payload, "ollama_base_url") or None
     report_path = _value(payload, "report_path") or None
 
     rubric = load_rubric(rubric_path)
     cases = load_cases_from_csv(input_path, artifact_type=rubric.artifact_type)
-    provider = make_provider(provider_name)
+    provider = make_provider(provider_name, openai_api_key=openai_api_key, ollama_base_url=ollama_base_url)
     engine = EvaluationEngine(provider=provider, model=model)
     store = EvalStore(db_path)
     run_id = store.create_run(
@@ -243,6 +246,7 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Goldset Workbench</title>
   <style>{_css()}</style>
+  <script>{_js()}</script>
 </head>
 <body>
   <aside>
@@ -443,12 +447,61 @@ def _run_form() -> str:
       {_sample_link("examples/lifecycle_email/sample.csv", "View sample CSV")}
     </label>
   </div>
-  <div class="row">
-    <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
-    <label>Model<input name="model" placeholder="optional"></label>
-  </div>
+  {_provider_controls()}
   <button>{_icon("play")}<span>Run eval</span></button>
 </form>"""
+
+
+def _provider_controls() -> str:
+    has_openai_model = bool(os.getenv("EVALKIT_OPENAI_MODEL"))
+    has_ollama_model = bool(os.getenv("EVALKIT_OLLAMA_MODEL"))
+    openai_key_state = "OPENAI_API_KEY is set in this environment." if os.getenv("OPENAI_API_KEY") else "No OPENAI_API_KEY detected."
+    openai_model_state = (
+        f"EVALKIT_OPENAI_MODEL is set to {html.escape(os.getenv('EVALKIT_OPENAI_MODEL', ''))}."
+        if has_openai_model
+        else "Enter a model below or set EVALKIT_OPENAI_MODEL."
+    )
+    ollama_model_state = (
+        f"EVALKIT_OLLAMA_MODEL is set to {html.escape(os.getenv('EVALKIT_OLLAMA_MODEL', ''))}."
+        if has_ollama_model
+        else "Enter a pulled local model below or set EVALKIT_OLLAMA_MODEL."
+    )
+    return f"""<div class="row provider-row">
+    <label>Provider{_help("Choose heuristic for offline demos, OpenAI for hosted model judging, or Ollama for local open-source models.")}
+      <select name="provider" data-provider-select>
+        <option value="heuristic">Heuristic - offline demo</option>
+        <option value="openai">OpenAI - hosted LLM judge</option>
+        <option value="ollama">Ollama - local model</option>
+      </select>
+    </label>
+    <label>Model{_help("Required for OpenAI and Ollama unless you set the matching environment variable. Examples: gpt-4.1-mini or llama3.1.")}
+      <input name="model" data-model-input data-openai-model-configured="{str(has_openai_model).lower()}" data-ollama-model-configured="{str(has_ollama_model).lower()}" placeholder="optional for heuristic">
+    </label>
+  </div>
+  <div class="provider-setup" data-provider-panel="heuristic">
+    <strong>{_icon("check")} Offline demo mode</strong>
+    <p>Runs without API keys or model downloads. Use this for setup checks and sample data; use OpenAI or Ollama when you want real LLM judgment.</p>
+  </div>
+  <div class="provider-setup" data-provider-panel="openai" hidden>
+    <strong>{_icon("guide")} OpenAI setup</strong>
+    <p>{html.escape(openai_key_state)} {openai_model_state}</p>
+    <label>OpenAI API key{_help("Used only for this local run. It is not saved to SQLite. You can leave this blank if OPENAI_API_KEY is set.")}
+      <input name="openai_api_key" type="password" autocomplete="off" placeholder="sk-...">
+    </label>
+    <p class="setup-command">CLI alternative: <code>export OPENAI_API_KEY='your_key'</code> and <code>export EVALKIT_OPENAI_MODEL='gpt-4.1-mini'</code></p>
+  </div>
+  <div class="provider-setup" data-provider-panel="ollama" hidden>
+    <strong>{_icon("guide")} Ollama setup</strong>
+    <p>{ollama_model_state} Ollama runs on your machine, so install it and pull a model before running this provider.</p>
+    <div class="command-list">
+      <code>brew install ollama</code>
+      <code>ollama serve</code>
+      <code>ollama pull llama3.1</code>
+    </div>
+    <label>Ollama base URL{_help("Leave this alone unless your local Ollama server is running somewhere else.")}
+      <input name="ollama_base_url" placeholder="http://127.0.0.1:11434">
+    </label>
+  </div>"""
 
 
 def _guide_panel() -> str:
@@ -680,10 +733,7 @@ def _backtest_panel(run_id: str | None) -> str:
       </select>
     </label>
   </div>
-  <div class="row">
-    <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
-    <label>Model<input name="model" placeholder="optional"></label>
-  </div>
+  {_provider_controls()}
   <button>{_icon("history")}<span>Run backtest</span></button>
 </form>"""
 
@@ -851,10 +901,42 @@ def _icon(name: str) -> str:
     )
 
 
+def _js() -> str:
+    return """
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('form').forEach((form) => {
+    const select = form.querySelector('[data-provider-select]');
+    if (!select) return;
+    const model = form.querySelector('[data-model-input]');
+    const panels = form.querySelectorAll('[data-provider-panel]');
+    const updateProvider = () => {
+      const provider = select.value;
+      panels.forEach((panel) => {
+        panel.hidden = panel.dataset.providerPanel !== provider;
+      });
+      if (model) {
+        const placeholders = {
+          heuristic: 'optional for heuristic',
+          openai: 'gpt-4.1-mini',
+          ollama: 'llama3.1'
+        };
+        model.placeholder = placeholders[provider] || 'optional';
+        model.required = (provider === 'openai' && model.dataset.openaiModelConfigured !== 'true') ||
+          (provider === 'ollama' && model.dataset.ollamaModelConfigured !== 'true');
+      }
+    };
+    select.addEventListener('change', updateProvider);
+    updateProvider();
+  });
+});
+"""
+
+
 def _css() -> str:
     return """
 :root { color-scheme: light; --ink: #151922; --muted: #667085; --line: #d9e0ea; --line-strong: #c5cedb; --panel: #ffffff; --bg: #f4f6f8; --rail: #141a22; --rail-soft: #202936; --accent: #0d766d; --accent-dark: #0a5f59; --blue: #2563eb; --amber: #b7791f; --purple: #6d5bd0; --danger: #b42318; --shadow: 0 16px 40px rgba(21,25,34,.08); --shadow-soft: 0 4px 14px rgba(21,25,34,.06); }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
 .icon { width: 17px; height: 17px; flex: 0 0 auto; }
 aside { background: var(--rail); color: white; padding: 24px 18px; position: sticky; top: 0; height: 100vh; overflow: auto; border-right: 1px solid #0f141b; }
@@ -920,6 +1002,13 @@ label.inline { display: flex; align-items: center; gap: 8px; }
 .sample-link { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: var(--accent-dark); text-decoration: none; font-size: 12px; font-weight: 800; }
 .sample-link:hover { text-decoration: underline; }
 .sample-link .icon { width: 14px; height: 14px; }
+.provider-row { align-items: start; }
+.provider-setup { border: 1px solid #dbe3ea; background: #fbfdff; border-radius: 8px; padding: 14px; display: grid; gap: 10px; }
+.provider-setup strong { display: flex; align-items: center; gap: 8px; color: #1f2937; }
+.provider-setup p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.setup-command code { display: inline; padding: 2px 5px; white-space: normal; color: #334155; background: #eef2f7; }
+.command-list { display: grid; gap: 7px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.command-list code { color: #334155; background: #eef2f7; }
 input, select, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 11px; font: inherit; background: white; color: var(--ink); transition: border-color .15s ease, box-shadow .15s ease; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: #83c7bc; box-shadow: 0 0 0 4px rgba(13,118,109,.12); }
 input[type="file"] { padding: 9px; background: #f8fafc; border-style: dashed; }
@@ -955,5 +1044,5 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f1f5f9; border
 .guide-list { margin: 8px 0 0; padding-left: 18px; }
 .guide-list li { margin-bottom: 7px; }
 @media (max-width: 1100px) { .guide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 920px) { body { grid-template-columns: 1fr; } aside { position: static; height: auto; } .two, .row, .metrics, .stepper, .guide-grid, .guide-two { grid-template-columns: 1fr; } .hero { display: block; } }
+@media (max-width: 920px) { body { grid-template-columns: 1fr; } aside { position: static; height: auto; } .two, .row, .metrics, .stepper, .guide-grid, .guide-two, .command-list { grid-template-columns: 1fr; } .hero { display: block; } }
 """

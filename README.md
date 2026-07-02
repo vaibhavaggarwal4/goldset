@@ -81,6 +81,7 @@ It opens a local web UI for:
 - guided setup, results, review, learning, calibration, and backtesting steps
 - running evals from a rubric and CSV
 - choosing rubric, CSV, golden set, and outcomes files with the native file picker
+- configuring provider setup for offline heuristic runs, OpenAI API keys, or local Ollama models
 - starting new workflows and reviewing previous workflows
 - categorizing runs by campaign, channel, surface, or experiment
 - viewing run history and pass rates
@@ -98,6 +99,10 @@ evalkit ui --db my_lifecycle_eval/evalkit.sqlite
 ```
 
 When you select a file in the workbench, Goldset copies it into a local `.goldset/uploads/` folder and runs from that copy.
+
+When you choose `OpenAI` in the workbench, Goldset shows an API key field and model guidance. The key is used for that local run and is not saved to SQLite. You can also keep using `OPENAI_API_KEY` and `EVALKIT_OPENAI_MODEL` environment variables.
+
+When you choose `Ollama`, Goldset shows the local setup commands. Install Ollama, run `ollama serve`, pull a model such as `llama3.1`, then enter that model in the workbench or set `EVALKIT_OLLAMA_MODEL`.
 
 Golden sets are best created before you rely on a new rubric, model, or prompt route. Calibration compares evaluator output against those expert labels, so in practice you run a known historical set first, calibrate reliability, then use the setup on new campaign work.
 

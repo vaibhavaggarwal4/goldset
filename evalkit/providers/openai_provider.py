@@ -16,7 +16,7 @@ class OpenAIProvider:
         if not resolved_key:
             raise UserFacingError(
                 "OPENAI_API_KEY is not set.\n"
-                "Fix: export OPENAI_API_KEY='your_key' before running with --provider openai."
+                "Fix: enter an OpenAI API key in the workbench, or export OPENAI_API_KEY='your_key' before running with --provider openai."
             )
         self.client = OpenAI(api_key=resolved_key)
 
@@ -25,7 +25,7 @@ class OpenAIProvider:
         if not resolved_model:
             raise UserFacingError(
                 "No OpenAI judge model was provided.\n"
-                "Fix: pass --model MODEL_NAME or export EVALKIT_OPENAI_MODEL='MODEL_NAME'."
+                "Fix: enter a model in the workbench, pass --model MODEL_NAME, or export EVALKIT_OPENAI_MODEL='MODEL_NAME'."
             )
 
         try:
