@@ -478,7 +478,7 @@ def _review_panel(run_id: str | None, review_rows: list[tuple]) -> str:
     cards = "\n".join(_review_card(run_id, case, dimension) for case, dimension in review_rows[:8])
     if not cards:
         cards = f'<p class="empty">No dimensions currently require human review.</p><p><a class="button-link" href="{_step_url("learn", run_id)}">{_icon("learn")}<span>Extract findings</span></a></p>'
-    return f"""<h2>Human review queue</h2>
+    return f"""<h2>Human review queue {_info("Review is where a human accepts or rejects machine judgments, adds corrections, and flags rubric problems. These reviews become learning signals.")}</h2>
 <p class="muted">Review the cases where human judgment matters most. Saved reviews disappear from the queue so progress is visible.</p>
 {cards}"""
 
@@ -502,12 +502,24 @@ def _review_card(run_id: str, case, dimension) -> str:
     <div class="row">
       <label>Reviewer<input name="reviewer" value="reviewer"></label>
       <label>Judgment<select name="passed"><option value="pass">Pass</option><option value="fail">Fail</option></select></label>
-      <label>Score<input name="score" type="number" min="1" max="5" step="0.5"></label>
+      <label>Optional quality rating{_help("Optional. Use this when pass/fail is not enough and you want a rough quality trend for reviewer calibration.")}
+        <select name="score">
+          <option value="">No score</option>
+          <option value="1">1 - unusable</option>
+          <option value="2">2 - major issues</option>
+          <option value="3">3 - needs edits</option>
+          <option value="4">4 - minor edits</option>
+          <option value="5">5 - ready to ship</option>
+        </select>
+      </label>
     </div>
     <label>Failure reason<input name="failure_reason" placeholder="unclear_cta, off_brand, judge_wrong"></label>
     <label>Correction<textarea name="correction"></textarea></label>
     <label>Notes<textarea name="notes"></textarea></label>
-    <label class="inline"><input name="rubric_issue" type="checkbox"> Rubric needs refinement</label>
+    <div class="review-flag">
+      <label class="inline"><input name="rubric_issue" type="checkbox"><span>Rubric needs refinement</span>{_info("Turn this on when the rubric itself is unclear, incomplete, too strict, too lenient, or asks the evaluator to judge the wrong thing.")}</label>
+      <p>Use this when the issue is the standard, not just the output. Add the suggested rubric change in notes.</p>
+    </div>
     <button>{_icon("check")}<span>Save review</span></button>
   </form>
 </article>"""
@@ -523,7 +535,7 @@ def _learn_panel(run_id: str | None, findings) -> str:
     )
     if not rows:
         rows = '<tr><td colspan="4" class="empty">No findings yet. Save a review with a failure, correction, disagreement, or rubric issue, then extract signals and findings.</td></tr>'
-    return f"""<h2>Learning loop</h2>
+    return f"""<h2>Learning loop {_info("Learn converts human reviews into structured signals and recurring findings. Use it after review to decide what to improve next.")}</h2>
 <p class="muted">Turn review feedback into recurring findings that can guide prompt, rubric, workflow, or model improvements.</p>
 {button}
 <table><thead><tr><th>ID</th><th>Finding</th><th>Dimension</th><th>Cases</th></tr></thead><tbody>{rows}</tbody></table>
@@ -532,7 +544,7 @@ def _learn_panel(run_id: str | None, findings) -> str:
 
 def _calibrate_panel(run_id: str | None) -> str:
     disabled = "disabled" if not run_id else ""
-    return f"""<h2>Calibrate evaluator</h2>
+    return f"""<h2>Calibrate evaluator {_info("Calibration compares evaluator decisions against expert-labeled golden examples so you can estimate trust before using the setup on new work.")}</h2>
 <p class="muted">Best practice: create a golden set before trusting a new rubric, model, or prompt route. Calibration still needs an eval run, so use it as a preflight check on known examples, then run new campaign work.</p>
 <div class="grid two">
   <form method="post" action="/actions/calibrate" class="stack" enctype="multipart/form-data">
@@ -558,7 +570,7 @@ def _calibrate_panel(run_id: str | None) -> str:
 
 
 def _backtest_panel(run_id: str | None) -> str:
-    return f"""<h2>Backtest a new version</h2>
+    return f"""<h2>Backtest a new version {_info("Backtesting runs a rubric or model route on historical examples so you can compare versions before changing live workflows.")}</h2>
 <p class="muted">Use this before trusting a new evaluator setup. Run known historical examples, compare against a golden set, then decide whether the rubric or judge is ready for new work.</p>
 <form method="post" action="/actions/backtest" class="stack backtest" enctype="multipart/form-data">
   <h3>Run historical backtest</h3>
@@ -732,6 +744,10 @@ def _help(text: str) -> str:
     return f'<span class="help" tabindex="0" aria-label="{html.escape(text)}">?</span>'
 
 
+def _info(text: str) -> str:
+    return f'<span class="info" tabindex="0" aria-label="{html.escape(text)}">i</span>'
+
+
 def _sample_link(path: str, label: str) -> str:
     url = Path(path).resolve().as_uri()
     return f'<a class="sample-link" href="{html.escape(url)}">{_icon("file")}<span>{html.escape(label)}</span></a>'
@@ -818,12 +834,15 @@ label { display: grid; gap: 6px; font-weight: 700; font-size: 13px; }
 label.inline { display: flex; align-items: center; gap: 8px; }
 .help { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 5px; border-radius: 999px; background: #eef6f4; color: var(--accent-dark); border: 1px solid #bdddd7; font-size: 12px; font-weight: 900; cursor: help; position: relative; }
 .help:hover::after, .help:focus::after { content: attr(aria-label); position: absolute; z-index: 10; left: 22px; top: 50%; transform: translateY(-50%); width: 260px; padding: 9px 10px; border-radius: 8px; background: #111827; color: white; font-size: 12px; font-weight: 650; line-height: 1.35; box-shadow: var(--shadow); }
+.info { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 6px; border-radius: 999px; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; font-size: 12px; font-weight: 900; cursor: help; position: relative; vertical-align: middle; }
+.info:hover::after, .info:focus::after { content: attr(aria-label); position: absolute; z-index: 10; left: 22px; top: 50%; transform: translateY(-50%); width: 280px; padding: 9px 10px; border-radius: 8px; background: #111827; color: white; font-size: 12px; font-weight: 650; line-height: 1.35; box-shadow: var(--shadow); text-transform: none; letter-spacing: 0; }
 .sample-link { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: var(--accent-dark); text-decoration: none; font-size: 12px; font-weight: 800; }
 .sample-link:hover { text-decoration: underline; }
 .sample-link .icon { width: 14px; height: 14px; }
 input, select, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 11px; font: inherit; background: white; color: var(--ink); transition: border-color .15s ease, box-shadow .15s ease; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: #83c7bc; box-shadow: 0 0 0 4px rgba(13,118,109,.12); }
 input[type="file"] { padding: 9px; background: #f8fafc; border-style: dashed; }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
 textarea { min-height: 70px; resize: vertical; }
 button { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: var(--accent); color: white; padding: 10px 13px; font-weight: 850; cursor: pointer; width: fit-content; box-shadow: 0 8px 18px rgba(13,118,109,.18); }
 button:hover { background: var(--accent-dark); }
@@ -838,6 +857,9 @@ th { color: #475569; background: #f8fafc; font-weight: 850; }
 td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 tr.selected td { background: #f0fdfa; }
 .review-card { border: 1px solid #dbe3ea; border-radius: 8px; padding: 16px; margin: 12px 0; background: #fbfdff; box-shadow: 0 1px 0 rgba(21,25,34,.03); }
+.review-flag { border: 1px solid #e4d7fb; background: #fbf8ff; border-radius: 8px; padding: 12px; }
+.review-flag .inline { justify-content: flex-start; font-weight: 850; color: #42307d; }
+.review-flag p { margin: 7px 0 0 24px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 summary { cursor: pointer; font-weight: 750; color: var(--accent-dark); margin: 10px 0; }
 pre { white-space: pre-wrap; word-break: break-word; background: #f1f5f9; border-radius: 7px; padding: 11px; font-size: 13px; }
 .backtest { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
