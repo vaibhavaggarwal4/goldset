@@ -53,7 +53,7 @@ If `evalkit doctor` says setup looks good, run the lifecycle email example:
 evalkit ui
 ```
 
-Open the printed URL, then click **Run eval**. The workbench defaults to the lifecycle email sample.
+Open the printed URL, choose `examples/lifecycle_email/rubric.yaml` and `examples/lifecycle_email/sample.csv`, then click **Run eval**.
 
 You can also run the same example from the CLI:
 
@@ -94,7 +94,7 @@ By default it uses `evalkit.sqlite`. To open another project database:
 evalkit ui --db my_lifecycle_eval/evalkit.sqlite
 ```
 
-When you select a file in the workbench, Goldset copies it into a local `.goldset/uploads/` folder and runs from that copy. You can still paste a path directly when you want to use the example files or a file already inside the repo.
+When you select a file in the workbench, Goldset copies it into a local `.goldset/uploads/` folder and runs from that copy.
 
 ## Recommended Workflow
 
