@@ -235,8 +235,8 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
 </head>
 <body>
   <aside>
-    <div class="brand">Goldset</div>
-    <a class="new-workflow" href="/?step=setup">New workflow</a>
+    <div class="brand"><span class="brand-mark">G</span><span><strong>Goldset</strong><small>Marketing evals</small></span></div>
+    <a class="new-workflow" href="/?step=setup">{_icon("plus")}<span>New workflow</span></a>
     {_category_nav(all_runs, selected_category)}
     {_workflow_nav(runs, run_id)}
     <div class="path-label">Database</div>
@@ -253,7 +253,7 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
         <form method="post" action="/actions/report">
           <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
           <input type="hidden" name="step" value="{html.escape(step)}">
-          <button {"disabled" if not run_id else ""}>Generate report</button>
+          <button {"disabled" if not run_id else ""}>{_icon("report")}<span>Generate report</span></button>
         </form>
       </div>
     </section>
@@ -328,21 +328,22 @@ def _hero_copy(step: str) -> str:
 
 def _stepper(active_step: str, run_id: str | None) -> str:
     steps = [
-        ("setup", "Setup"),
-        ("results", "Results"),
-        ("review", "Review"),
-        ("learn", "Learn"),
-        ("calibrate", "Calibrate"),
-        ("backtest", "Backtest"),
+        ("setup", "Setup", "file"),
+        ("results", "Results", "chart"),
+        ("review", "Review", "review"),
+        ("learn", "Learn", "learn"),
+        ("calibrate", "Calibrate", "target"),
+        ("backtest", "Backtest", "history"),
     ]
     links = []
-    for step, label in steps:
+    for step, label, icon in steps:
         disabled = step != "setup" and not run_id
         class_name = "active" if step == active_step else ""
+        content = f'{_icon(icon)}<span>{label}</span>'
         if disabled:
-            links.append(f'<span class="step disabled">{label}</span>')
+            links.append(f'<span class="step disabled">{content}</span>')
         else:
-            links.append(f'<a class="step {class_name}" href="{_step_url(step, None if step == "setup" else run_id)}">{label}</a>')
+            links.append(f'<a class="step {class_name}" href="{_step_url(step, None if step == "setup" else run_id)}">{content}</a>')
     return f'<nav class="stepper">{"".join(links)}</nav>'
 
 
@@ -352,19 +353,19 @@ def _category_nav(runs, selected_category: str) -> str:
         category = row["category"] or "General"
         counts[category] = counts.get(category, 0) + 1
     if not counts:
-        return '<div class="rail-section"><h2>Categories</h2><p class="rail-empty">No workflows yet.</p></div>'
+        return f'<div class="rail-section"><h2>{_icon("folder")}<span>Categories</span></h2><p class="rail-empty">No workflows yet.</p></div>'
     all_class = "selected" if not selected_category else ""
     all_item = f'<a class="{all_class}" href="/"><span>All</span><strong>{len(runs)}</strong></a>'
     items = "\n".join(
         f'<a class="{"selected" if category == selected_category else ""}" href="/?category={urlencode({"": category})[1:]}"><span>{html.escape(category)}</span><strong>{count}</strong></a>'
         for category, count in sorted(counts.items())
     )
-    return f'<div class="rail-section"><h2>Categories</h2><div class="category-list">{all_item}{items}</div></div>'
+    return f'<div class="rail-section"><h2>{_icon("folder")}<span>Categories</span></h2><div class="category-list">{all_item}{items}</div></div>'
 
 
 def _workflow_nav(runs, selected_run_id: str | None) -> str:
     if not runs:
-        return '<div class="rail-section"><h2>Previous workflows</h2><p class="rail-empty">Run your first eval to create history.</p></div>'
+        return f'<div class="rail-section"><h2>{_icon("history")}<span>Previous workflows</span></h2><p class="rail-empty">Run your first eval to create history.</p></div>'
     rows = "\n".join(
         f"""<a class="workflow-link {"selected" if row['id'] == selected_run_id else ""}" href="{_step_url("results", row['id'])}">
   <span>{html.escape(row['suite_name'])}</span>
@@ -372,7 +373,7 @@ def _workflow_nav(runs, selected_run_id: str | None) -> str:
 </a>"""
         for row in runs
     )
-    return f'<div class="rail-section"><h2>Previous workflows</h2><div class="workflow-list">{rows}</div></div>'
+    return f'<div class="rail-section"><h2>{_icon("history")}<span>Previous workflows</span></h2><div class="workflow-list">{rows}</div></div>'
 
 
 def _step_url(step: str, run_id: str | None) -> str:
@@ -402,7 +403,7 @@ def _run_form() -> str:
     <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
     <label>Model<input name="model" placeholder="optional"></label>
   </div>
-  <button>Run eval</button>
+  <button>{_icon("play")}<span>Run eval</span></button>
 </form>"""
 
 
@@ -423,7 +424,7 @@ def _runs_panel(runs, selected_run_id: str | None) -> str:
 
 def _results_panel(selected, metrics: dict | None, failures) -> str:
     if not selected or not metrics:
-        return f'<h2>Results</h2><p class="empty">Start with setup to create a run.</p><p><a class="button-link" href="{_step_url("setup", None)}">Start setup</a></p>'
+        return f'<h2>Results</h2><p class="empty">Start with setup to create a run.</p><p><a class="button-link" href="{_step_url("setup", None)}">{_icon("plus")}<span>Start setup</span></a></p>'
     dimensions = "\n".join(
         f"<tr><td>{html.escape(name)}</td><td>{_pct(values['pass_rate'])}</td><td>{values['evaluated']}/{values['total']}</td><td>{values['needs_human_review']}</td></tr>"
         for name, values in metrics["by_dimension"].items()
@@ -440,15 +441,15 @@ def _results_panel(selected, metrics: dict | None, failures) -> str:
 <table><thead><tr><th>Dimension</th><th>Pass rate</th><th>Evaluated</th><th>Human review</th></tr></thead><tbody>{dimensions}</tbody></table>
 <h3>Failures to inspect</h3>
 <table><thead><tr><th>Case</th><th>Dimension</th><th>Rationale</th></tr></thead><tbody>{failure_rows}</tbody></table>
-<div class="next-actions"><a class="button-link" href="{_step_url("review", selected['id'])}">Start human review</a><a class="secondary-link" href="{_step_url("calibrate", selected['id'])}">Calibrate evaluator</a></div>"""
+<div class="next-actions"><a class="button-link" href="{_step_url("review", selected['id'])}">{_icon("review")}<span>Start human review</span></a><a class="secondary-link" href="{_step_url("calibrate", selected['id'])}">{_icon("target")}<span>Calibrate evaluator</span></a></div>"""
 
 
 def _review_panel(run_id: str | None, review_rows: list[tuple]) -> str:
     if not run_id:
-        return f'<h2>Human review</h2><p class="empty">Run an eval to create a review queue.</p><p><a class="button-link" href="{_step_url("setup", None)}">Start setup</a></p>'
+        return f'<h2>Human review</h2><p class="empty">Run an eval to create a review queue.</p><p><a class="button-link" href="{_step_url("setup", None)}">{_icon("plus")}<span>Start setup</span></a></p>'
     cards = "\n".join(_review_card(run_id, case, dimension) for case, dimension in review_rows[:8])
     if not cards:
-        cards = f'<p class="empty">No dimensions currently require human review.</p><p><a class="button-link" href="{_step_url("learn", run_id)}">Extract findings</a></p>'
+        cards = f'<p class="empty">No dimensions currently require human review.</p><p><a class="button-link" href="{_step_url("learn", run_id)}">{_icon("learn")}<span>Extract findings</span></a></p>'
     return f"""<h2>Human review queue</h2>
 <p class="muted">Review the cases where human judgment matters most. Saved reviews disappear from the queue so progress is visible.</p>
 {cards}"""
@@ -479,15 +480,15 @@ def _review_card(run_id: str, case, dimension) -> str:
     <label>Correction<textarea name="correction"></textarea></label>
     <label>Notes<textarea name="notes"></textarea></label>
     <label class="inline"><input name="rubric_issue" type="checkbox"> Rubric needs refinement</label>
-    <button>Save review</button>
+    <button>{_icon("check")}<span>Save review</span></button>
   </form>
 </article>"""
 
 
 def _learn_panel(run_id: str | None, findings) -> str:
     if not run_id:
-        return f'<h2>Learning loop</h2><p class="empty">Run and review an eval before extracting findings.</p><p><a class="button-link" href="{_step_url("setup", None)}">Start setup</a></p>'
-    button = f"""<form method="post" action="/actions/learn"><input type="hidden" name="run_id" value="{html.escape(run_id)}"><button>Extract signals and findings</button></form>"""
+        return f'<h2>Learning loop</h2><p class="empty">Run and review an eval before extracting findings.</p><p><a class="button-link" href="{_step_url("setup", None)}">{_icon("plus")}<span>Start setup</span></a></p>'
+    button = f"""<form method="post" action="/actions/learn"><input type="hidden" name="run_id" value="{html.escape(run_id)}"><button>{_icon("learn")}<span>Extract signals and findings</span></button></form>"""
     rows = "\n".join(
         f"<tr><td>{row['id']}</td><td>{html.escape(row['title'])}</td><td>{html.escape(row['dimension_name'])}</td><td>{row['case_count']}</td></tr>"
         for row in findings
@@ -498,7 +499,7 @@ def _learn_panel(run_id: str | None, findings) -> str:
 <p class="muted">Turn review feedback into recurring findings that can guide prompt, rubric, workflow, or model improvements.</p>
 {button}
 <table><thead><tr><th>ID</th><th>Finding</th><th>Dimension</th><th>Cases</th></tr></thead><tbody>{rows}</tbody></table>
-<div class="next-actions"><a class="button-link" href="{_step_url("calibrate", run_id)}">Calibrate evaluator</a><a class="secondary-link" href="{_step_url("backtest", run_id)}">Run backtest</a></div>"""
+<div class="next-actions"><a class="button-link" href="{_step_url("calibrate", run_id)}">{_icon("target")}<span>Calibrate evaluator</span></a><a class="secondary-link" href="{_step_url("backtest", run_id)}">{_icon("history")}<span>Run backtest</span></a></div>"""
 
 
 def _calibrate_panel(run_id: str | None) -> str:
@@ -510,16 +511,16 @@ def _calibrate_panel(run_id: str | None) -> str:
     <h3>Golden set calibration</h3>
     <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
     <label>Golden set CSV file<input name="golden_file" type="file" accept=".csv,text/csv" required></label>
-    <button {disabled}>Run calibration</button>
+    <button {disabled}>{_icon("target")}<span>Run calibration</span></button>
   </form>
   <form method="post" action="/actions/outcomes" class="stack" enctype="multipart/form-data">
     <h3>Outcome correlation</h3>
     <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
     <label>Outcomes CSV file<input name="outcomes_file" type="file" accept=".csv,text/csv" required></label>
-    <button {disabled}>Calculate correlation</button>
+    <button {disabled}>{_icon("chart")}<span>Calculate correlation</span></button>
   </form>
 </div>
-<div class="next-actions"><a class="button-link" href="{_step_url("backtest", run_id)}">Run historical backtest</a></div>"""
+<div class="next-actions"><a class="button-link" href="{_step_url("backtest", run_id)}">{_icon("history")}<span>Run historical backtest</span></a></div>"""
 
 
 def _backtest_panel(run_id: str | None) -> str:
@@ -542,21 +543,21 @@ def _backtest_panel(run_id: str | None) -> str:
     <label>Provider<select name="provider"><option value="heuristic">heuristic</option><option value="openai">openai</option><option value="ollama">ollama</option></select></label>
     <label>Model<input name="model" placeholder="optional"></label>
   </div>
-  <button>Run backtest</button>
+  <button>{_icon("history")}<span>Run backtest</span></button>
 </form>"""
 
 
 def _metric_cards(metrics: dict | None, review_count: int, finding_count: int) -> str:
     if not metrics:
-        values = [("Cases", "0"), ("Pass rate", "N/A"), ("Human reviews", "0"), ("Findings", "0")]
+        values = [("Cases", "0", "file"), ("Pass rate", "N/A", "chart"), ("Human reviews", "0", "review"), ("Findings", "0", "learn")]
     else:
         values = [
-            ("Cases", str(metrics["total_cases"])),
-            ("Pass rate", _pct(metrics["pass_rate"])),
-            ("Human reviews", str(review_count)),
-            ("Findings", str(finding_count)),
+            ("Cases", str(metrics["total_cases"]), "file"),
+            ("Pass rate", _pct(metrics["pass_rate"]), "chart"),
+            ("Human reviews", str(review_count), "review"),
+            ("Findings", str(finding_count), "learn"),
         ]
-    return "".join(f'<div class="metric"><span>{label}</span><strong>{value}</strong></div>' for label, value in values)
+    return "".join(f'<div class="metric"><span class="metric-icon">{_icon(icon)}</span><span>{label}</span><strong>{value}</strong></div>' for label, value, icon in values)
 
 
 def _review_queue(case_rows, dimension_rows, human_rows) -> list[tuple]:
@@ -674,70 +675,101 @@ def _num(value: float | None) -> str:
     return f"{value:.3f}"
 
 
+def _icon(name: str) -> str:
+    paths = {
+        "plus": '<path d="M12 5v14M5 12h14"/>',
+        "file": '<path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/>',
+        "chart": '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-8"/>',
+        "review": '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="m8 11 2 2 5-5"/>',
+        "learn": '<path d="M12 3v18"/><path d="M5 7a4 4 0 0 1 7-2 4 4 0 0 1 7 2v8a4 4 0 0 1-7 2 4 4 0 0 1-7-2z"/>',
+        "target": '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+        "history": '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/><path d="M12 7v5l3 2"/>',
+        "folder": '<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+        "report": '<path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5"/><path d="M9 13h6M9 17h6M9 9h2"/>',
+        "play": '<path d="m8 5 11 7-11 7z"/>',
+        "check": '<path d="m5 12 4 4L19 6"/>',
+    }
+    return (
+        '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" '
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        f'{paths.get(name, paths["file"])}</svg>'
+    )
+
+
 def _css() -> str:
     return """
-:root { color-scheme: light; --ink: #17202a; --muted: #64748b; --line: #d8dee8; --panel: #ffffff; --bg: #f6f7f9; --accent: #0f766e; --accent-dark: #115e59; --warn: #b45309; }
+:root { color-scheme: light; --ink: #151922; --muted: #667085; --line: #d9e0ea; --line-strong: #c5cedb; --panel: #ffffff; --bg: #f4f6f8; --rail: #141a22; --rail-soft: #202936; --accent: #0d766d; --accent-dark: #0a5f59; --blue: #2563eb; --amber: #b7791f; --purple: #6d5bd0; --danger: #b42318; --shadow: 0 16px 40px rgba(21,25,34,.08); --shadow-soft: 0 4px 14px rgba(21,25,34,.06); }
 * { box-sizing: border-box; }
-body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
-aside { background: #16211f; color: white; padding: 26px 22px; position: sticky; top: 0; height: 100vh; overflow: auto; }
-.brand { font-size: 22px; font-weight: 800; margin-bottom: 28px; }
-.new-workflow { display: block; background: #e7f7f1; color: #134e4a; text-decoration: none; border-radius: 7px; padding: 10px 12px; font-weight: 800; margin-bottom: 22px; }
-.rail-section { border-top: 1px solid rgba(255,255,255,.14); padding-top: 16px; margin-top: 16px; }
-.rail-section h2 { color: #9cc9c0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
-.rail-empty { color: #9cc9c0; font-size: 13px; margin: 0; }
+body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+.icon { width: 17px; height: 17px; flex: 0 0 auto; }
+aside { background: var(--rail); color: white; padding: 24px 18px; position: sticky; top: 0; height: 100vh; overflow: auto; border-right: 1px solid #0f141b; }
+.brand { display: flex; align-items: center; gap: 11px; margin-bottom: 24px; }
+.brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: #f7c948; color: #171717; font-weight: 900; box-shadow: 0 8px 20px rgba(247,201,72,.22); }
+.brand strong { display: block; font-size: 20px; line-height: 1; }
+.brand small { display: block; color: #aeb8c6; margin-top: 3px; font-size: 12px; }
+.new-workflow { display: flex; align-items: center; gap: 8px; background: #e7f7f1; color: #134e4a; text-decoration: none; border-radius: 8px; padding: 10px 12px; font-weight: 850; margin-bottom: 22px; box-shadow: 0 8px 22px rgba(13,118,109,.12); }
+.rail-section { border-top: 1px solid rgba(255,255,255,.12); padding-top: 16px; margin-top: 16px; }
+.rail-section h2 { display: flex; align-items: center; gap: 7px; color: #aeb8c6; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 9px; }
+.rail-section h2 .icon { width: 14px; height: 14px; }
+.rail-empty { color: #aeb8c6; font-size: 13px; margin: 0; line-height: 1.45; }
 .category-list, .workflow-list { display: grid; gap: 6px; }
-.category-list a, .workflow-link { color: #d9f4ee; text-decoration: none; border-radius: 7px; padding: 9px 10px; }
+.category-list a, .workflow-link { color: #e6edf5; text-decoration: none; border-radius: 8px; padding: 9px 10px; border: 1px solid transparent; }
 .category-list a { display: flex; justify-content: space-between; align-items: center; }
-.category-list a:hover, .workflow-link:hover, .category-list a.selected, .workflow-link.selected { background: rgba(255,255,255,.09); }
+.category-list a:hover, .workflow-link:hover, .category-list a.selected, .workflow-link.selected { background: var(--rail-soft); border-color: rgba(255,255,255,.08); }
+.category-list strong { color: #aeb8c6; font-size: 12px; }
 .workflow-link { display: grid; gap: 3px; }
-.workflow-link span { font-weight: 750; }
-.workflow-link small { color: #9cc9c0; }
-code { display: block; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: inherit; background: rgba(255,255,255,.09); border-radius: 7px; padding: 9px; }
-.path-label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #9cc9c0; margin-bottom: 8px; }
-main { padding: 30px; max-width: 1280px; width: 100%; }
+.workflow-link span { font-weight: 800; font-size: 14px; }
+.workflow-link small { color: #aeb8c6; font-size: 12px; }
+code { display: block; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: #d9e2ec; background: rgba(255,255,255,.08); border-radius: 8px; padding: 10px; border: 1px solid rgba(255,255,255,.07); }
+.path-label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #aeb8c6; margin: 18px 0 8px; }
+main { padding: 34px; max-width: 1320px; width: 100%; }
 .solo { max-width: 900px; margin: 0 auto; display: block; }
-.hero { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 18px; }
+.hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 18px; }
 .eyebrow { margin: 0 0 8px; color: var(--accent-dark); font-weight: 800; text-transform: uppercase; font-size: 12px; letter-spacing: .08em; }
-h1 { margin: 0; max-width: 760px; font-size: 34px; line-height: 1.08; letter-spacing: 0; }
-.hero-copy { max-width: 760px; margin: 10px 0 0; color: var(--muted); font-size: 16px; }
-h2 { margin: 0 0 8px; font-size: 20px; letter-spacing: 0; }
+h1 { margin: 0; max-width: 820px; font-size: 36px; line-height: 1.08; letter-spacing: 0; }
+.hero-copy { max-width: 780px; margin: 10px 0 0; color: var(--muted); font-size: 16px; line-height: 1.55; }
+h2 { margin: 0 0 8px; font-size: 21px; letter-spacing: 0; }
 h3 { margin: 18px 0 8px; font-size: 15px; letter-spacing: 0; }
 .grid { display: grid; gap: 16px; }
 .two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; margin: 18px 0; }
-.metric, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
-.metric { padding: 16px; }
-.metric span { color: var(--muted); font-size: 13px; }
-.metric strong { display: block; font-size: 28px; margin-top: 5px; }
+.metric, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-soft); }
+.metric { padding: 16px; position: relative; overflow: hidden; }
+.metric > span:not(.metric-icon) { color: var(--muted); font-size: 13px; font-weight: 750; }
+.metric-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: var(--accent); background: #e7f7f1; margin-bottom: 10px; }
+.metric strong { display: block; font-size: 28px; margin-top: 5px; letter-spacing: 0; }
 .panel { padding: 18px; margin-bottom: 16px; }
-.focus { padding: 22px; }
-.notice { background: #e7f7f1; border: 1px solid #9bd8c6; color: #134e4a; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; }
+.focus { padding: 24px; box-shadow: var(--shadow); }
+.notice { background: #e7f7f1; border: 1px solid #9bd8c6; color: #134e4a; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-weight: 650; }
 .stepper { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 18px 0; }
-.step { text-align: center; text-decoration: none; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); padding: 10px 8px; font-weight: 800; font-size: 13px; }
-.step.active { border-color: #0f766e; background: #e7f7f1; color: #134e4a; }
+.step { display: flex; align-items: center; justify-content: center; gap: 7px; text-align: center; text-decoration: none; border: 1px solid var(--line); border-radius: 8px; background: white; color: #344054; padding: 10px 8px; font-weight: 850; font-size: 13px; box-shadow: 0 1px 0 rgba(21,25,34,.03); }
+.step .icon { width: 15px; height: 15px; }
+.step.active { border-color: #83c7bc; background: #e7f7f1; color: #134e4a; box-shadow: inset 0 0 0 1px rgba(13,118,109,.12); }
 .step.disabled { color: #94a3b8; background: #eef2f7; }
 .error pre { white-space: pre-wrap; background: #fff7ed; border: 1px solid #fed7aa; padding: 14px; border-radius: 8px; }
-.muted, .empty { color: var(--muted); }
+.muted, .empty { color: var(--muted); line-height: 1.5; }
 .stack { display: grid; gap: 12px; }
 .compact { margin-top: 12px; }
 .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 label { display: grid; gap: 6px; font-weight: 700; font-size: 13px; }
 label.inline { display: flex; align-items: center; gap: 8px; }
-input, select, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 7px; padding: 9px 10px; font: inherit; background: white; color: var(--ink); }
+input, select, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 11px; font: inherit; background: white; color: var(--ink); transition: border-color .15s ease, box-shadow .15s ease; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #83c7bc; box-shadow: 0 0 0 4px rgba(13,118,109,.12); }
+input[type="file"] { padding: 9px; background: #f8fafc; border-style: dashed; }
 textarea { min-height: 70px; resize: vertical; }
-button { border: 0; border-radius: 7px; background: var(--accent); color: white; padding: 10px 13px; font-weight: 800; cursor: pointer; width: fit-content; }
+button { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: var(--accent); color: white; padding: 10px 13px; font-weight: 850; cursor: pointer; width: fit-content; box-shadow: 0 8px 18px rgba(13,118,109,.18); }
 button:hover { background: var(--accent-dark); }
 button:disabled { background: #94a3b8; cursor: not-allowed; }
 .next-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
-.button-link, .secondary-link { display: inline-block; border-radius: 7px; padding: 10px 13px; font-weight: 800; text-decoration: none; }
-.button-link { background: var(--accent); color: white; }
+.button-link, .secondary-link { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; padding: 10px 13px; font-weight: 850; text-decoration: none; }
+.button-link { background: var(--accent); color: white; box-shadow: 0 8px 18px rgba(13,118,109,.18); }
 .secondary-link { border: 1px solid var(--line); color: var(--accent-dark); background: white; }
 table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-th, td { text-align: left; vertical-align: top; border-bottom: 1px solid #e5e7eb; padding: 10px 9px; font-size: 14px; }
-th { color: #475569; background: #f8fafc; }
+th, td { text-align: left; vertical-align: top; border-bottom: 1px solid #e5e7eb; padding: 11px 10px; font-size: 14px; }
+th { color: #475569; background: #f8fafc; font-weight: 850; }
 td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 tr.selected td { background: #f0fdfa; }
-.review-card { border: 1px solid #dbe3ea; border-radius: 8px; padding: 14px; margin: 12px 0; background: #fbfdff; }
+.review-card { border: 1px solid #dbe3ea; border-radius: 8px; padding: 16px; margin: 12px 0; background: #fbfdff; box-shadow: 0 1px 0 rgba(21,25,34,.03); }
 summary { cursor: pointer; font-weight: 750; color: var(--accent-dark); margin: 10px 0; }
 pre { white-space: pre-wrap; word-break: break-word; background: #f1f5f9; border-radius: 7px; padding: 11px; font-size: 13px; }
 .backtest { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
