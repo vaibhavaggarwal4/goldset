@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import html
 from pathlib import Path
+import re
 
 from evalkit.metrics import calculate_metrics
 from evalkit.storage import EvalStore
 
 
-def render_html_report(store: EvalStore, run_id: str, output_path: str | Path) -> Path:
+def render_html_report(store: EvalStore, run_id: str, output_path: str | Path | None = None) -> Path:
     run = store.run(run_id)
     case_rows = store.case_rows(run_id)
     dimension_rows = store.dimension_rows(run_id)
@@ -16,9 +17,35 @@ def render_html_report(store: EvalStore, run_id: str, output_path: str | Path) -
     finding_rows = store.finding_rows(run_id)
     target_rows = store.eval_target_rows(run_id)
     metrics = calculate_metrics(case_rows, dimension_rows, human_rows)
-    output = Path(output_path)
+    output = _available_report_path(output_path, run)
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(_html(run, case_rows, dimension_rows, human_rows, signal_rows, finding_rows, target_rows, metrics))
     return output
+
+
+def _available_report_path(output_path: str | Path | None, run) -> Path:
+    if output_path:
+        requested = Path(output_path)
+    else:
+        suite_slug = _slugify(run["suite_name"]) or "eval-report"
+        requested = Path("reports") / f"{suite_slug}-{run['id'][:8]}.html"
+    if not requested.exists():
+        return requested
+
+    stem = requested.stem
+    suffix = requested.suffix or ".html"
+    parent = requested.parent
+    index = 2
+    while True:
+        candidate = parent / f"{stem}-{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug[:64].strip("-")
 
 
 def _html(run, case_rows, dimension_rows, human_rows, signal_rows, finding_rows, target_rows, metrics: dict) -> str:

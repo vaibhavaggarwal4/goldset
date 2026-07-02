@@ -77,12 +77,12 @@ def _main() -> None:
     run_parser.add_argument("--suite-name", default="Marketing Evaluation")
     run_parser.add_argument("--provider", default="heuristic", choices=["heuristic", "openai", "ollama"])
     run_parser.add_argument("--model")
-    run_parser.add_argument("--report", default="report.html")
+    run_parser.add_argument("--report", help="HTML report path. Defaults to reports/<suite-name>-<run-id>.html.")
 
     report_parser = subparsers.add_parser("report", help="Render an HTML report for a run.")
     report_parser.add_argument("--db", default="evalkit.sqlite")
     report_parser.add_argument("--run-id", default="latest")
-    report_parser.add_argument("--output", default="report.html")
+    report_parser.add_argument("--output", help="HTML report path. Defaults to reports/<suite-name>-<run-id>.html.")
 
     review_parser = subparsers.add_parser("review", help="Start the local human review UI.")
     review_parser.add_argument("--db", default="evalkit.sqlite")
@@ -132,7 +132,7 @@ def _main() -> None:
     backtest_parser.add_argument("--suite-name", default="Backtest")
     backtest_parser.add_argument("--provider", default="heuristic", choices=["heuristic", "openai", "ollama"])
     backtest_parser.add_argument("--model")
-    backtest_parser.add_argument("--report", default="backtest-report.html")
+    backtest_parser.add_argument("--report", help="HTML report path. Defaults to reports/<suite-name>-<run-id>.html.")
 
     args = parser.parse_args()
     _dispatch(args)
@@ -286,7 +286,7 @@ def learn(args: argparse.Namespace) -> None:
             f"evalkit targets --db {args.db} --finding-id {first_finding} --owner \"{args.owner}\""
         )
         print("Tip: add --export-targets to evalkit learn to create target folders automatically.")
-    print(f"Next: refresh your report with evalkit report --db {args.db} --run-id {run_id} --output report.html")
+    print(f"Next: refresh your report with evalkit report --db {args.db} --run-id {run_id}")
 
 
 def calibrate(args: argparse.Namespace) -> None:
@@ -497,7 +497,7 @@ def doctor(args: argparse.Namespace) -> None:
             "Fix the missing items above, then run evalkit doctor again."
         )
 
-    print("\nSetup looks good. Try: evalkit run --rubric examples/lifecycle_email/rubric.yaml --input examples/lifecycle_email/sample.csv --provider heuristic --report lifecycle-report.html")
+    print("\nSetup looks good. Try: evalkit run --rubric examples/lifecycle_email/rubric.yaml --input examples/lifecycle_email/sample.csv --provider heuristic")
 
 
 if __name__ == "__main__":

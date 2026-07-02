@@ -55,9 +55,10 @@ evalkit run \
   --input examples/lifecycle_email/sample.csv \
   --db evalkit.sqlite \
   --suite-name "Lifecycle Email Evaluation" \
-  --provider heuristic \
-  --report lifecycle-report.html
+  --provider heuristic
 ```
+
+The command prints a clickable report URL when it finishes.
 
 ## Recommended Workflow
 
@@ -107,26 +108,19 @@ You can also test with the broader sample CSV:
 evalkit run \
   --rubric templates/rubrics/basic_marketing_quality.yaml \
   --input examples/sample_data/marketing_outputs.csv \
-  --provider heuristic \
-  --report sample-report.html
+  --provider heuristic
 ```
 
-Open the report:
+## Reports
+
+By default, HTML reports are written to `reports/` with a name based on the suite and run ID.
+
+If a report path already exists, Goldset does not overwrite it. It appends a number so multiple reports can live side by side, for example `lifecycle-email-evaluation-abc12345-2.html`.
+
+You can choose a specific report location:
 
 ```bash
-open lifecycle-report.html
-```
-
-On Windows:
-
-```powershell
-start lifecycle-report.html
-```
-
-On Linux:
-
-```bash
-xdg-open lifecycle-report.html
+evalkit run --rubric RUBRIC.yaml --input DATA.csv --report reports/my-report.html
 ```
 
 ## Human Review UI
@@ -148,7 +142,7 @@ Review dimensions, mark pass/fail, add a failure reason or correction when somet
 Then regenerate the report so human review metrics are included:
 
 ```bash
-evalkit report --db evalkit.sqlite --run-id latest --output lifecycle-report.html
+evalkit report --db evalkit.sqlite --run-id latest
 ```
 
 ## Self-Improving Loop
@@ -173,7 +167,7 @@ evalkit learn --db evalkit.sqlite --run-id latest
 Then refresh the report to see review signals, findings, and eval targets:
 
 ```bash
-evalkit report --db evalkit.sqlite --run-id latest --output lifecycle-report.html
+evalkit report --db evalkit.sqlite --run-id latest
 ```
 
 To also export improvement task folders automatically:
@@ -256,8 +250,7 @@ evalkit backtest \
   --input examples/lifecycle_email/sample.csv \
   --golden-set examples/golden_sets/lifecycle_email_golden_set.csv \
   --outcomes examples/outcomes/lifecycle_email_outcomes.csv \
-  --provider heuristic \
-  --report backtest-report.html
+  --provider heuristic
 ```
 
 ## Use Local Open-Source Models
@@ -274,8 +267,7 @@ evalkit doctor --check-ollama
 evalkit run \
   --rubric examples/lifecycle_email/rubric.yaml \
   --input examples/lifecycle_email/sample.csv \
-  --provider ollama \
-  --report lifecycle-report.html
+  --provider ollama
 ```
 
 You can also pass the local model directly:
@@ -316,8 +308,7 @@ evalkit run \
   --rubric examples/lifecycle_email/rubric.yaml \
   --input examples/lifecycle_email/sample.csv \
   --provider openai \
-  --db evalkit.sqlite \
-  --report lifecycle-report.html
+  --db evalkit.sqlite
 ```
 
 You can also pass the model directly:
@@ -340,7 +331,7 @@ evalkit inspect-csv --source EXPORT.csv
 evalkit import --source EXPORT.csv --mapping MAPPING.yaml --output DATA.csv
 evalkit import-outcomes --source RESULTS.csv --mapping OUTCOME_MAPPING.yaml --output OUTCOMES.csv
 evalkit run --rubric RUBRIC.yaml --input DATA.csv
-evalkit report --db evalkit.sqlite --run-id latest --output report.html
+evalkit report --db evalkit.sqlite --run-id latest
 evalkit review --db evalkit.sqlite --run-id latest --port 8765
 evalkit learn --db evalkit.sqlite --run-id latest
 evalkit signals --db evalkit.sqlite --run-id latest
