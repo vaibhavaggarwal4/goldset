@@ -76,6 +76,7 @@ def _html(run, case_rows, dimension_rows, human_rows, signal_rows, finding_rows,
     )
     if not finding_table:
         finding_table = '<tr><td colspan="5">No findings yet. Submit human reviews, then run <code>evalkit learn</code>.</td></tr>'
+    generator_brief = _generator_improvement_brief(finding_rows, signal_rows, dimension_rows)
     review_count = len(human_rows)
     return f"""<!doctype html>
 <html lang="en">
@@ -98,6 +99,9 @@ def _html(run, case_rows, dimension_rows, human_rows, signal_rows, finding_rows,
     .pass {{ color: #047857; font-weight: 700; }}
     .fail {{ color: #b91c1c; font-weight: 700; }}
     .pending {{ color: #92400e; font-weight: 700; }}
+    .brief {{ background: white; border: 1px solid #dbe3ea; border-radius: 8px; padding: 18px; margin: 12px 0 28px; }}
+    .brief p {{ color: #475569; line-height: 1.55; }}
+    .brief pre {{ white-space: pre-wrap; word-break: break-word; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; font-size: 13px; line-height: 1.5; }}
   </style>
 </head>
 <body>
@@ -125,6 +129,11 @@ def _html(run, case_rows, dimension_rows, human_rows, signal_rows, finding_rows,
       <thead><tr><th>ID</th><th>Finding</th><th>Dimension</th><th>Cases</th><th>Status</th></tr></thead>
       <tbody>{finding_table}</tbody>
     </table>
+    <h2>Generator Improvement Brief</h2>
+    <section class="brief">
+      <p>Give this to the upstream AI system, prompt owner, or workflow builder to improve the next generation pass. Goldset measures quality; this brief turns eval failures into generator-side changes to try.</p>
+      <pre>{html.escape(generator_brief)}</pre>
+    </section>
     <h2>Results</h2>
     <table>
       <thead><tr><th>Case</th><th>Dimension</th><th>Status</th><th>Score</th><th>Rationale</th></tr></thead>
@@ -134,6 +143,89 @@ def _html(run, case_rows, dimension_rows, human_rows, signal_rows, finding_rows,
 </body>
 </html>
 """
+
+
+def _generator_improvement_brief(finding_rows, signal_rows, dimension_rows) -> str:
+    lines = [
+        "Use this with the upstream AI marketing generator.",
+        "",
+        "Goal: improve the initial generated campaign outputs before they reach Goldset.",
+        "",
+        "Recommended generator-side changes:",
+    ]
+    recommendations = _finding_recommendations(finding_rows)
+    if not recommendations:
+        recommendations = _signal_recommendations(signal_rows)
+    if not recommendations:
+        recommendations = _failure_recommendations(dimension_rows)
+    if not recommendations:
+        recommendations = [
+            "- No clear generator failures were found in this run. Keep the current generator unchanged, then rerun Goldset on the next batch to watch for regressions."
+        ]
+    lines.extend(recommendations)
+    lines.extend(
+        [
+            "",
+            "Suggested loop:",
+            "1. Apply the changes to the upstream prompt, context, examples, retrieval inputs, model route, or generation workflow.",
+            "2. Generate a fresh batch of campaign outputs.",
+            "3. Rerun the same Goldset rubric on the new outputs.",
+            "4. Compare pass rate, failed dimensions, human review notes, and business outcome correlation before adopting the change.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _finding_recommendations(finding_rows) -> list[str]:
+    rows = list(finding_rows)[:8]
+    return [
+        "- "
+        + _generator_action(
+            dimension=row["dimension_name"],
+            issue=row["failure_reason"],
+            evidence=f"{row['case_count']} reviewed signal(s)",
+        )
+        for row in rows
+    ]
+
+
+def _signal_recommendations(signal_rows) -> list[str]:
+    grouped: dict[tuple[str, str], int] = {}
+    for row in signal_rows:
+        key = (row["dimension_name"], row["failure_reason"] or row["signal_type"] or "review feedback")
+        grouped[key] = grouped.get(key, 0) + 1
+    return [
+        "- " + _generator_action(dimension=dimension, issue=issue, evidence=f"{count} review signal(s)")
+        for (dimension, issue), count in sorted(grouped.items(), key=lambda item: (-item[1], item[0]))[:8]
+    ]
+
+
+def _failure_recommendations(dimension_rows) -> list[str]:
+    grouped: dict[str, list[str]] = {}
+    for row in dimension_rows:
+        if row["passed"] == 0:
+            grouped.setdefault(row["dimension_name"], []).append(row["rationale"] or "machine failed this dimension")
+    return [
+        "- " + _generator_action(dimension=dimension, issue=_common_issue(rationales), evidence=f"{len(rationales)} failed case(s)")
+        for dimension, rationales in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0]))[:8]
+    ]
+
+
+def _generator_action(*, dimension: str, issue: str, evidence: str) -> str:
+    clean_dimension = dimension.replace("_", " ")
+    clean_issue = (issue or "quality gap").replace("_", " ")
+    return (
+        f"For '{clean_dimension}', address '{clean_issue}' ({evidence}). "
+        f"Update the generator instructions to explicitly satisfy this criterion before final output; add 1-2 strong examples that pass it; "
+        f"and add a self-check step that rejects drafts likely to fail '{clean_dimension}'."
+    )
+
+
+def _common_issue(rationales: list[str]) -> str:
+    for rationale in rationales:
+        if rationale:
+            return rationale[:180]
+    return "machine failed this dimension"
 
 
 def _pct(value: float | None) -> str:

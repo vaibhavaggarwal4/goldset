@@ -13,6 +13,7 @@ It supports:
 - LLM-as-judge evaluations for qualitative dimensions like clarity, audience fit, and brand voice
 - SQLite storage for evaluation runs
 - HTML reports
+- generator improvement briefs that translate eval failures into prompt, context, example, model-route, or workflow changes for the upstream AI system
 - a local human review UI for calibration
 - structured review signals, findings, and eval targets for self-improving workflows
 - golden sets, calibration, evaluator reliability metrics, outcome correlation, and backtesting
