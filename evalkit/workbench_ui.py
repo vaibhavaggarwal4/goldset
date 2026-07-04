@@ -1081,9 +1081,17 @@ function showProgress(label, form) {
         <div class="spinner" aria-hidden="true"></div>
         <strong data-progress-title></strong>
         <p data-progress-copy></p>
+        <div class="progress-meta">
+          <span data-progress-elapsed>Elapsed 0s</span>
+          <button type="button" data-progress-stop>Stop waiting</button>
+        </div>
         <ol data-progress-steps></ol>
       </div>
     `;
+    overlay.querySelector('[data-progress-stop]').addEventListener('click', () => {
+      window.clearInterval(window.__goldsetProgressTimer);
+      window.location.href = '/';
+    });
     document.body.appendChild(overlay);
   }
   const provider = form?.querySelector('[data-provider-select]')?.value || '';
@@ -1091,30 +1099,32 @@ function showProgress(label, form) {
   const providerCopy = provider === 'openai'
     ? `Calling OpenAI${model ? ` with ${model}` : ''}. This can take a moment depending on quota, latency, and number of judged dimensions.`
     : provider === 'ollama'
-      ? `Calling your local Ollama model${model ? ` (${model})` : ''}. Larger local models can take longer.`
+      ? `Calling your local Ollama model${model ? ` (${model})` : ''}. Larger local models can take several minutes, especially on the first run.`
       : 'Running offline checks and saving results locally.';
   overlay.querySelector('[data-progress-title]').textContent = label;
   overlay.querySelector('[data-progress-copy]').textContent = providerCopy;
   overlay.querySelector('[data-progress-steps]').innerHTML = progressSteps(label).map((step, index) => (
-    `<li class="${index === 0 ? 'active' : ''}"><span>${index + 1}</span>${step}</li>`
+    `<li><span>${index + 1}</span>${step}</li>`
   )).join('');
   overlay.hidden = false;
-  let index = 0;
+  const startedAt = Date.now();
   window.clearInterval(window.__goldsetProgressTimer);
   window.__goldsetProgressTimer = window.setInterval(() => {
-    const steps = [...overlay.querySelectorAll('[data-progress-steps] li')];
-    if (!steps.length) return;
-    steps.forEach((step, stepIndex) => {
-      step.classList.toggle('done', stepIndex < index);
-      step.classList.toggle('active', stepIndex === index);
-    });
-    index = Math.min(index + 1, steps.length - 1);
-  }, 1400);
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = String(elapsedSeconds % 60).padStart(2, '0');
+    overlay.querySelector('[data-progress-elapsed]').textContent =
+      minutes > 0 ? `Elapsed ${minutes}:${seconds}` : `Elapsed ${elapsedSeconds}s`;
+    if (provider === 'ollama' && elapsedSeconds >= 90) {
+      overlay.querySelector('[data-progress-copy]').textContent =
+        `Still waiting on Ollama${model ? ` (${model})` : ''}. This can happen with larger local models. If it takes too long, stop waiting and try a smaller model or check Ollama in your terminal.`;
+    }
+  }, 1000);
 }
 
 function progressSteps(label) {
   if (label.includes('eval') || label.includes('backtest')) {
-    return ['Reading rubric and CSV', 'Running deterministic checks', 'Judging qualitative dimensions', 'Saving results and rendering report'];
+    return ['Reading rubric and CSV', 'Running deterministic checks', 'Waiting for evaluator responses', 'Saving results and rendering report'];
   }
   if (label.includes('calibration')) {
     return ['Reading golden set', 'Matching labels to results', 'Calculating reliability metrics'];
@@ -1279,12 +1289,12 @@ button.is-loading { background: #0a5f59; }
 .progress-card strong { display: block; margin-top: 12px; font-size: 18px; }
 .progress-card p { margin: 7px 0 14px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .spinner { width: 34px; height: 34px; margin: 0 auto; border-radius: 999px; border: 4px solid #dbe8e5; border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.progress-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; background: #f8fafc; border: 1px solid #e5e7eb; }
+.progress-meta span { color: #475569; font-size: 13px; font-weight: 800; }
+.progress-meta button { padding: 7px 10px; background: white; color: #334155; border: 1px solid #cbd5e1; box-shadow: none; }
 .progress-card ol { list-style: none; display: grid; gap: 8px; padding: 0; margin: 0; }
 .progress-card li { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
 .progress-card li span { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: #eef2f7; color: #475569; font-weight: 900; font-size: 12px; }
-.progress-card li.active { color: var(--ink); font-weight: 800; }
-.progress-card li.active span { background: #e7f7f1; color: var(--accent-dark); }
-.progress-card li.done span { background: var(--accent); color: white; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .next-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
 .button-link, .secondary-link { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; padding: 10px 13px; font-weight: 850; text-decoration: none; }

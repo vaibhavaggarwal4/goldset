@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 
@@ -43,6 +44,12 @@ class OllamaProvider:
         try:
             with urllib.request.urlopen(request, timeout=120) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except (TimeoutError, socket.timeout) as exc:
+            raise UserFacingError(
+                f"Ollama timed out while judging with model '{resolved_model}'.\n"
+                "Fix: try a smaller local model, make sure Ollama has enough memory/CPU, or use --provider heuristic/openai for this run.\n"
+                f"Provider detail: {exc}"
+            ) from exc
         except urllib.error.URLError as exc:
             raise UserFacingError(
                 f"Could not reach Ollama at {self.base_url}.\n"
