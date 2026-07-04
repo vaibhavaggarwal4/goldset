@@ -5,12 +5,9 @@ from email.parser import BytesParser
 import html
 import json
 import os
-import platform
 import re
 import shutil
 import socketserver
-import subprocess
-import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -69,12 +66,6 @@ def _make_handler(db_path: Path):
                 if self.path == "/actions/run":
                     notice, run_id = _run_eval(db_path, payload)
                     self._redirect("/", {"run_id": run_id, "step": "results", "notice": notice})
-                elif self.path == "/actions/ollama_setup":
-                    notice = _setup_ollama(payload)
-                    params = {"step": _value(payload, "return_step") or "setup", "notice": notice}
-                    if _value(payload, "run_id"):
-                        params["run_id"] = _value(payload, "run_id")
-                    self._redirect("/", params)
                 elif self.path == "/actions/backtest":
                     notice, run_id = _run_backtest(db_path, payload)
                     self._redirect("/", {"run_id": run_id, "step": "backtest", "notice": notice})
@@ -148,55 +139,6 @@ def _run_eval(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     return f"Run complete. Evaluated {len(cases)} case(s). Report: {report.resolve().as_uri()}", run_id
 
 
-def _setup_ollama(payload: dict[str, list[str]]) -> str:
-    model = _value(payload, "model") or os.getenv("EVALKIT_OLLAMA_MODEL") or "llama3.1"
-    base_url = (_value(payload, "ollama_base_url") or os.getenv("EVALKIT_OLLAMA_BASE_URL") or "http://127.0.0.1:11434").rstrip("/")
-    actions: list[str] = []
-
-    ollama_path = shutil.which("ollama")
-    if not ollama_path:
-        if platform.system() == "Darwin" and shutil.which("brew"):
-            _run_local_command(["brew", "install", "ollama"], timeout=1200, label="install Ollama with Homebrew")
-            actions.append("installed Ollama")
-            ollama_path = shutil.which("ollama")
-        else:
-            raise UserFacingError(
-                "Ollama is not installed and Goldset could not install it automatically on this machine.\n"
-                "Fix: install Ollama from https://ollama.com, then return here and click Set up local model."
-            )
-
-    if not ollama_path:
-        raise UserFacingError(
-            "Ollama installation finished, but the ollama command was not found on PATH.\n"
-            "Fix: restart your terminal, run evalkit ui again, then click Set up local model."
-        )
-
-    if not _ollama_server_reachable(base_url):
-        _start_ollama_server(ollama_path)
-        if not _wait_for_ollama(base_url, attempts=20):
-            raise UserFacingError(
-                f"Ollama is installed, but Goldset could not reach the local server at {base_url}.\n"
-                "Fix: open a terminal and run ollama serve, then try again."
-            )
-        actions.append("started Ollama")
-
-    _run_local_command([ollama_path, "pull", model], timeout=1800, label=f"pull Ollama model {model}")
-    actions.append(f"pulled {model}")
-    return f"Ollama setup complete: {', '.join(actions) or 'already installed'}."
-
-
-def _run_local_command(command: list[str], *, timeout: int, label: str) -> None:
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
-    except FileNotFoundError as exc:
-        raise UserFacingError(f"Could not {label}: command not found ({command[0]}).") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise UserFacingError(f"Timed out while trying to {label}. Try again, or run the setup manually.") from exc
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "No command output.").strip()
-        raise UserFacingError(f"Could not {label}.\nProvider detail: {detail[-1200:]}")
-
-
 def _ollama_server_reachable(base_url: str) -> bool:
     try:
         with urllib.request.urlopen(f"{base_url}/api/tags", timeout=2) as response:
@@ -205,21 +147,38 @@ def _ollama_server_reachable(base_url: str) -> bool:
         return False
 
 
-def _start_ollama_server(ollama_path: str) -> None:
-    subprocess.Popen(
-        [ollama_path, "serve"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
+def _ollama_model_available(base_url: str, model: str) -> bool:
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return False
+    models = payload.get("models") or []
+    names = {row.get("name", "").split(":", 1)[0] for row in models}
+    names.update(row.get("name", "") for row in models)
+    return model in names
+
+
+def _ollama_status_html() -> str:
+    model = os.getenv("EVALKIT_OLLAMA_MODEL") or "llama3.1"
+    base_url = os.getenv("EVALKIT_OLLAMA_BASE_URL") or "http://127.0.0.1:11434"
+    installed = shutil.which("ollama") is not None
+    server = _ollama_server_reachable(base_url) if installed else False
+    model_ready = _ollama_model_available(base_url, model) if server else False
+    rows = [
+        ("Ollama installed", installed, "Install with evalkit setup ollama --model MODEL_NAME."),
+        ("Local server reachable", server, "Run evalkit setup ollama --model MODEL_NAME to start it."),
+        (f"Default model ready ({model})", model_ready, "Pull it with evalkit setup ollama --model MODEL_NAME."),
+    ]
+    rendered = "".join(
+        f"""<li class="status-row {"ok" if ok else "missing"}">
+  <span>{_icon("check" if ok else "guide")}</span>
+  <strong>{html.escape(label)}</strong>
+  <small>{html.escape("Ready" if ok else fix)}</small>
+</li>"""
+        for label, ok, fix in rows
     )
-
-
-def _wait_for_ollama(base_url: str, *, attempts: int) -> bool:
-    for _ in range(attempts):
-        if _ollama_server_reachable(base_url):
-            return True
-        time.sleep(0.75)
-    return False
+    return f'<ul class="status-list">{rendered}</ul>'
 
 
 def _run_backtest(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
@@ -533,12 +492,12 @@ def _run_form() -> str:
       {_sample_link("examples/lifecycle_email/sample.csv", "View sample CSV")}
     </label>
   </div>
-  {_provider_controls(return_step="setup")}
+  {_provider_controls()}
   <button data-progress="Running eval...">{_icon("play")}<span>Run eval</span></button>
 </form>"""
 
 
-def _provider_controls(*, return_step: str, run_id: str | None = None) -> str:
+def _provider_controls() -> str:
     has_openai_model = bool(os.getenv("EVALKIT_OPENAI_MODEL"))
     has_ollama_model = bool(os.getenv("EVALKIT_OLLAMA_MODEL"))
     openai_key_state = "OPENAI_API_KEY is set in this environment." if os.getenv("OPENAI_API_KEY") else "No OPENAI_API_KEY detected."
@@ -578,13 +537,15 @@ def _provider_controls(*, return_step: str, run_id: str | None = None) -> str:
   </div>
   <div class="provider-setup" data-provider-panel="ollama" hidden>
     <strong>{_icon("guide")} Ollama setup</strong>
-    <p>{ollama_model_state} Goldset can install Ollama with Homebrew on macOS, start the local server, and pull the model after you confirm.</p>
+    <p>{ollama_model_state} Use the CLI for install, server startup, and model downloads so long-running setup has proper terminal progress.</p>
+    {_ollama_status_html()}
+    <div class="command-copy">
+      <code data-ollama-command>evalkit setup ollama --model llama3.1</code>
+      <a class="secondary-link" href="/?step=setup">{_icon("history")}<span>Check again</span></a>
+    </div>
     <label>Ollama base URL{_help("Leave this alone unless your local Ollama server is running somewhere else.")}
       <input name="ollama_base_url" placeholder="http://127.0.0.1:11434">
     </label>
-    <input type="hidden" name="return_step" value="{html.escape(return_step)}">
-    <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
-    <button type="submit" formaction="/actions/ollama_setup" formnovalidate data-progress="Setting up Ollama..." data-confirm="Goldset will install Ollama if needed, start the local Ollama server, and pull the selected model. This can take several minutes and may download a large model. Continue?">{_icon("download")}<span>Set up local model</span></button>
   </div>"""
 
 
@@ -817,7 +778,7 @@ def _backtest_panel(run_id: str | None) -> str:
       </select>
     </label>
   </div>
-  {_provider_controls(return_step="backtest", run_id=run_id)}
+  {_provider_controls()}
   <button data-progress="Running backtest...">{_icon("history")}<span>Run backtest</span></button>
 </form>"""
 
@@ -994,6 +955,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (select) {
       const model = form.querySelector('[data-model-input]');
       const panels = form.querySelectorAll('[data-provider-panel]');
+      const ollamaCommand = form.querySelector('[data-ollama-command]');
+      const updateOllamaCommand = () => {
+        if (!ollamaCommand || !model) return;
+        const modelName = model.value.trim() || 'llama3.1';
+        ollamaCommand.textContent = `evalkit setup ollama --model ${modelName}`;
+      };
       const updateProvider = () => {
         const provider = select.value;
         panels.forEach((panel) => {
@@ -1009,8 +976,10 @@ document.addEventListener('DOMContentLoaded', () => {
           model.required = (provider === 'openai' && model.dataset.openaiModelConfigured !== 'true') ||
             (provider === 'ollama' && model.dataset.ollamaModelConfigured !== 'true');
         }
+        updateOllamaCommand();
       };
       select.addEventListener('change', updateProvider);
+      if (model) model.addEventListener('input', updateOllamaCommand);
       updateProvider();
     }
     form.addEventListener('submit', (event) => {
@@ -1123,6 +1092,15 @@ label.inline { display: flex; align-items: center; gap: 8px; }
 .provider-setup strong { display: flex; align-items: center; gap: 8px; color: #1f2937; }
 .provider-setup p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .setup-command code { display: inline; padding: 2px 5px; white-space: normal; color: #334155; background: #eef2f7; }
+.status-list { list-style: none; display: grid; gap: 8px; padding: 0; margin: 0; }
+.status-row { display: grid; grid-template-columns: 24px minmax(0, .8fr) minmax(0, 1.2fr); gap: 8px; align-items: center; border: 1px solid #e5e7eb; border-radius: 8px; padding: 9px 10px; background: white; }
+.status-row span { display: grid; place-items: center; color: var(--muted); }
+.status-row.ok span { color: var(--accent); }
+.status-row.missing span { color: var(--amber); }
+.status-row strong { display: block; font-size: 13px; }
+.status-row small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.command-copy { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.command-copy code { color: #334155; background: #eef2f7; }
 .command-list { display: grid; gap: 7px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .command-list code { color: #334155; background: #eef2f7; }
 input, select, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 11px; font: inherit; background: white; color: var(--ink); transition: border-color .15s ease, box-shadow .15s ease; }
@@ -1167,5 +1145,5 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f1f5f9; border
 .guide-list { margin: 8px 0 0; padding-left: 18px; }
 .guide-list li { margin-bottom: 7px; }
 @media (max-width: 1100px) { .guide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 920px) { body { grid-template-columns: 1fr; } aside { position: static; height: auto; } .two, .row, .metrics, .stepper, .guide-grid, .guide-two, .command-list { grid-template-columns: 1fr; } .hero { display: block; } }
+@media (max-width: 920px) { body { grid-template-columns: 1fr; } aside { position: static; height: auto; } .two, .row, .metrics, .stepper, .guide-grid, .guide-two, .command-list, .status-row { grid-template-columns: 1fr; } .hero { display: block; } }
 """

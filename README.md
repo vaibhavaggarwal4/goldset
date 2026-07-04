@@ -91,7 +91,7 @@ It opens a local web UI for:
 - calibrating against a golden set
 - correlating eval results with business outcomes
 - running historical backtests
-- showing progress while evals, reports, calibration, and setup tasks are running
+- showing progress while evals, reports, and calibration tasks are running
 
 By default it uses `evalkit.sqlite`. To open another project database:
 
@@ -103,7 +103,11 @@ When you select a file in the workbench, Goldset copies it into a local `.goldse
 
 When you choose `OpenAI` in the workbench, Goldset shows an API key field and model guidance. The key is used for that local run and is not saved to SQLite. You can also keep using `OPENAI_API_KEY` and `EVALKIT_OPENAI_MODEL` environment variables.
 
-When you choose `Ollama`, Goldset can set up the local model after you confirm. On macOS with Homebrew, it can install Ollama, start the local server, and pull a model such as `llama3.1`. On other systems, it will explain the manual install step if automatic setup is not available.
+When you choose `Ollama`, the workbench checks whether the local provider is ready and shows the exact terminal command to run. Long-running setup happens in the CLI, where model downloads can show progress clearly:
+
+```bash
+evalkit setup ollama --model llama3.1
+```
 
 Golden sets are best created before you rely on a new rubric, model, or prompt route. Calibration compares evaluator output against those expert labels, so in practice you run a known historical set first, calibrate reliability, then use the setup on new campaign work.
 
@@ -304,10 +308,10 @@ evalkit backtest \
 
 Goldset Evals supports local model judging through Ollama. This avoids sending data to a hosted LLM provider.
 
-Install Ollama, pull a model, and run:
+Use the setup command to install Ollama when supported, start the local server, and pull a model:
 
 ```bash
-ollama pull llama3.1
+evalkit setup ollama --model llama3.1
 export EVALKIT_OLLAMA_MODEL="llama3.1"
 evalkit doctor --check-ollama
 

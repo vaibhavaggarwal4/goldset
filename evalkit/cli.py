@@ -3,9 +3,14 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import platform
 from pathlib import Path
 import shutil
+import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 
 from evalkit.errors import UserFacingError
 from evalkit.evaluators import EvaluationEngine
@@ -48,6 +53,12 @@ def _main() -> None:
     doctor_parser = subparsers.add_parser("doctor", help="Check local setup and common configuration.")
     doctor_parser.add_argument("--check-openai", action="store_true", help="Also check OpenAI package and env vars.")
     doctor_parser.add_argument("--check-ollama", action="store_true", help="Also check local Ollama setup.")
+
+    setup_parser = subparsers.add_parser("setup", help="Set up optional local providers.")
+    setup_parser.add_argument("target", choices=["ollama"])
+    setup_parser.add_argument("--model", default=os.getenv("EVALKIT_OLLAMA_MODEL") or "llama3.1")
+    setup_parser.add_argument("--base-url", default=os.getenv("EVALKIT_OLLAMA_BASE_URL") or "http://127.0.0.1:11434")
+    setup_parser.add_argument("--yes", action="store_true", help="Skip confirmation prompts.")
 
     init_parser = subparsers.add_parser("init", help="Create an editable eval workspace from templates.")
     init_parser.add_argument("--surface", required=True, choices=sorted(SUPPORTED_SURFACES))
@@ -147,6 +158,8 @@ def _main() -> None:
 def _dispatch(args: argparse.Namespace) -> None:
     if args.command == "doctor":
         doctor(args)
+    elif args.command == "setup":
+        setup(args)
     elif args.command == "init":
         init_workspace(args)
     elif args.command == "suggest-rubric":
@@ -224,6 +237,92 @@ def review(args: argparse.Namespace) -> None:
 
 def ui(args: argparse.Namespace) -> None:
     serve_workbench(args.db, args.host, args.port)
+
+
+def setup(args: argparse.Namespace) -> None:
+    if args.target == "ollama":
+        setup_ollama(args)
+
+
+def setup_ollama(args: argparse.Namespace) -> None:
+    model = args.model
+    base_url = args.base_url.rstrip("/")
+    print(f"Ollama setup target: model={model}, base_url={base_url}")
+    if not args.yes:
+        print("This may install Ollama, start the local server, and download a model.")
+        answer = input("Continue? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            raise UserFacingError("Ollama setup cancelled.")
+
+    ollama_path = shutil.which("ollama")
+    if not ollama_path:
+        print("Ollama CLI: missing")
+        if platform.system() == "Darwin" and shutil.which("brew"):
+            print("Installing Ollama with Homebrew...")
+            _run_command(["brew", "install", "ollama"], timeout=1200)
+            ollama_path = shutil.which("ollama")
+        else:
+            raise UserFacingError(
+                "Ollama is not installed and automatic install is only supported on macOS with Homebrew.\n"
+                "Install Ollama from https://ollama.com, then rerun evalkit setup ollama --model "
+                f"{model}."
+            )
+    else:
+        print(f"Ollama CLI: {ollama_path}")
+
+    if not ollama_path:
+        raise UserFacingError("Ollama installed, but the ollama command was not found on PATH. Restart your terminal and try again.")
+
+    if not _ollama_server_reachable(base_url):
+        print("Starting Ollama server...")
+        subprocess.Popen([ollama_path, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        if not _wait_for_ollama(base_url, attempts=30):
+            raise UserFacingError(f"Ollama server did not become reachable at {base_url}. Try running ollama serve in another terminal.")
+    print(f"Ollama server: reachable at {base_url}")
+
+    print(f"Pulling model: {model}")
+    _run_command([ollama_path, "pull", model], timeout=1800)
+    print("\nOllama setup complete.")
+    print(f"Next: choose provider Ollama and model {model} in the Workbench, or run evalkit run --provider ollama --model {model} ...")
+
+
+def _run_command(command: list[str], *, timeout: int) -> None:
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError as exc:
+        raise UserFacingError(f"Command not found: {command[0]}") from exc
+    output: list[str] = []
+    started = time.time()
+    assert process.stdout is not None
+    while True:
+        line = process.stdout.readline()
+        if line:
+            output.append(line)
+            print(line, end="")
+        if process.poll() is not None:
+            break
+        if time.time() - started > timeout:
+            process.kill()
+            raise UserFacingError(f"Command timed out: {' '.join(command)}")
+    if process.returncode != 0:
+        detail = "".join(output[-40:]).strip() or "No command output."
+        raise UserFacingError(f"Command failed: {' '.join(command)}\n{detail}")
+
+
+def _ollama_server_reachable(base_url: str) -> bool:
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=2) as response:
+            return 200 <= response.status < 500
+    except (urllib.error.URLError, TimeoutError):
+        return False
+
+
+def _wait_for_ollama(base_url: str, *, attempts: int) -> bool:
+    for _ in range(attempts):
+        if _ollama_server_reachable(base_url):
+            return True
+        time.sleep(0.75)
+    return False
 
 
 def signals(args: argparse.Namespace) -> None:
