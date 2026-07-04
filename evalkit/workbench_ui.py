@@ -5,12 +5,18 @@ from email.parser import BytesParser
 import html
 import json
 import os
+import platform
 import re
+import shutil
 import socketserver
+import subprocess
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
+import urllib.error
+import urllib.request
 
 from evalkit.errors import UserFacingError
 from evalkit.evaluators import EvaluationEngine
@@ -63,6 +69,12 @@ def _make_handler(db_path: Path):
                 if self.path == "/actions/run":
                     notice, run_id = _run_eval(db_path, payload)
                     self._redirect("/", {"run_id": run_id, "step": "results", "notice": notice})
+                elif self.path == "/actions/ollama_setup":
+                    notice = _setup_ollama(payload)
+                    params = {"step": _value(payload, "return_step") or "setup", "notice": notice}
+                    if _value(payload, "run_id"):
+                        params["run_id"] = _value(payload, "run_id")
+                    self._redirect("/", params)
                 elif self.path == "/actions/backtest":
                     notice, run_id = _run_backtest(db_path, payload)
                     self._redirect("/", {"run_id": run_id, "step": "backtest", "notice": notice})
@@ -134,6 +146,80 @@ def _run_eval(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     store.save_results(run_id, engine.evaluate_cases(cases, rubric))
     report = render_html_report(store, run_id, report_path)
     return f"Run complete. Evaluated {len(cases)} case(s). Report: {report.resolve().as_uri()}", run_id
+
+
+def _setup_ollama(payload: dict[str, list[str]]) -> str:
+    model = _value(payload, "model") or os.getenv("EVALKIT_OLLAMA_MODEL") or "llama3.1"
+    base_url = (_value(payload, "ollama_base_url") or os.getenv("EVALKIT_OLLAMA_BASE_URL") or "http://127.0.0.1:11434").rstrip("/")
+    actions: list[str] = []
+
+    ollama_path = shutil.which("ollama")
+    if not ollama_path:
+        if platform.system() == "Darwin" and shutil.which("brew"):
+            _run_local_command(["brew", "install", "ollama"], timeout=1200, label="install Ollama with Homebrew")
+            actions.append("installed Ollama")
+            ollama_path = shutil.which("ollama")
+        else:
+            raise UserFacingError(
+                "Ollama is not installed and Goldset could not install it automatically on this machine.\n"
+                "Fix: install Ollama from https://ollama.com, then return here and click Set up local model."
+            )
+
+    if not ollama_path:
+        raise UserFacingError(
+            "Ollama installation finished, but the ollama command was not found on PATH.\n"
+            "Fix: restart your terminal, run evalkit ui again, then click Set up local model."
+        )
+
+    if not _ollama_server_reachable(base_url):
+        _start_ollama_server(ollama_path)
+        if not _wait_for_ollama(base_url, attempts=20):
+            raise UserFacingError(
+                f"Ollama is installed, but Goldset could not reach the local server at {base_url}.\n"
+                "Fix: open a terminal and run ollama serve, then try again."
+            )
+        actions.append("started Ollama")
+
+    _run_local_command([ollama_path, "pull", model], timeout=1800, label=f"pull Ollama model {model}")
+    actions.append(f"pulled {model}")
+    return f"Ollama setup complete: {', '.join(actions) or 'already installed'}."
+
+
+def _run_local_command(command: list[str], *, timeout: int, label: str) -> None:
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
+    except FileNotFoundError as exc:
+        raise UserFacingError(f"Could not {label}: command not found ({command[0]}).") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise UserFacingError(f"Timed out while trying to {label}. Try again, or run the setup manually.") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "No command output.").strip()
+        raise UserFacingError(f"Could not {label}.\nProvider detail: {detail[-1200:]}")
+
+
+def _ollama_server_reachable(base_url: str) -> bool:
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=2) as response:
+            return 200 <= response.status < 500
+    except (urllib.error.URLError, TimeoutError):
+        return False
+
+
+def _start_ollama_server(ollama_path: str) -> None:
+    subprocess.Popen(
+        [ollama_path, "serve"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def _wait_for_ollama(base_url: str, *, attempts: int) -> bool:
+    for _ in range(attempts):
+        if _ollama_server_reachable(base_url):
+            return True
+        time.sleep(0.75)
+    return False
 
 
 def _run_backtest(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
@@ -269,7 +355,7 @@ def _render_home(db_path: Path, query: dict[str, list[str]]) -> str:
         <form method="post" action="/actions/report">
           <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
           <input type="hidden" name="step" value="{html.escape(step)}">
-          <button {"disabled" if not run_id else ""}>{_icon("report")}<span>Generate report</span></button>
+          <button {"disabled" if not run_id else ""} data-progress="Generating report...">{_icon("report")}<span>Generate report</span></button>
         </form>
       </div>
     </section>
@@ -447,12 +533,12 @@ def _run_form() -> str:
       {_sample_link("examples/lifecycle_email/sample.csv", "View sample CSV")}
     </label>
   </div>
-  {_provider_controls()}
-  <button>{_icon("play")}<span>Run eval</span></button>
+  {_provider_controls(return_step="setup")}
+  <button data-progress="Running eval...">{_icon("play")}<span>Run eval</span></button>
 </form>"""
 
 
-def _provider_controls() -> str:
+def _provider_controls(*, return_step: str, run_id: str | None = None) -> str:
     has_openai_model = bool(os.getenv("EVALKIT_OPENAI_MODEL"))
     has_ollama_model = bool(os.getenv("EVALKIT_OLLAMA_MODEL"))
     openai_key_state = "OPENAI_API_KEY is set in this environment." if os.getenv("OPENAI_API_KEY") else "No OPENAI_API_KEY detected."
@@ -492,15 +578,13 @@ def _provider_controls() -> str:
   </div>
   <div class="provider-setup" data-provider-panel="ollama" hidden>
     <strong>{_icon("guide")} Ollama setup</strong>
-    <p>{ollama_model_state} Ollama runs on your machine, so install it and pull a model before running this provider.</p>
-    <div class="command-list">
-      <code>brew install ollama</code>
-      <code>ollama serve</code>
-      <code>ollama pull llama3.1</code>
-    </div>
+    <p>{ollama_model_state} Goldset can install Ollama with Homebrew on macOS, start the local server, and pull the model after you confirm.</p>
     <label>Ollama base URL{_help("Leave this alone unless your local Ollama server is running somewhere else.")}
       <input name="ollama_base_url" placeholder="http://127.0.0.1:11434">
     </label>
+    <input type="hidden" name="return_step" value="{html.escape(return_step)}">
+    <input type="hidden" name="run_id" value="{html.escape(run_id or '')}">
+    <button type="submit" formaction="/actions/ollama_setup" formnovalidate data-progress="Setting up Ollama..." data-confirm="Goldset will install Ollama if needed, start the local Ollama server, and pull the selected model. This can take several minutes and may download a large model. Continue?">{_icon("download")}<span>Set up local model</span></button>
   </div>"""
 
 
@@ -649,7 +733,7 @@ def _review_card(run_id: str, case, dimension) -> str:
       <label class="inline"><input name="rubric_issue" type="checkbox"><span>Rubric needs refinement</span>{_info("Turn this on when the rubric itself is unclear, incomplete, too strict, too lenient, or asks the evaluator to judge the wrong thing.")}</label>
       <p>Use this when the issue is the standard, not just the output. Add the suggested rubric change in notes.</p>
     </div>
-    <button>{_icon("check")}<span>Save review</span></button>
+    <button data-progress="Saving review...">{_icon("check")}<span>Save review</span></button>
   </form>
 </article>"""
 
@@ -657,7 +741,7 @@ def _review_card(run_id: str, case, dimension) -> str:
 def _learn_panel(run_id: str | None, findings) -> str:
     if not run_id:
         return f'<h2>Learning loop</h2><p class="empty">Run and review an eval before extracting findings.</p><p><a class="button-link" href="{_step_url("setup", None)}">{_icon("plus")}<span>Start setup</span></a></p>'
-    button = f"""<form method="post" action="/actions/learn"><input type="hidden" name="run_id" value="{html.escape(run_id)}"><button>{_icon("learn")}<span>Extract signals and findings</span></button></form>"""
+    button = f"""<form method="post" action="/actions/learn"><input type="hidden" name="run_id" value="{html.escape(run_id)}"><button data-progress="Extracting findings...">{_icon("learn")}<span>Extract signals and findings</span></button></form>"""
     rows = "\n".join(
         f"<tr><td>{row['id']}</td><td>{html.escape(row['title'])}</td><td>{html.escape(row['dimension_name'])}</td><td>{row['case_count']}</td></tr>"
         for row in findings
@@ -683,7 +767,7 @@ def _calibrate_panel(run_id: str | None) -> str:
       <input name="golden_file" type="file" accept=".csv,text/csv" required>
       {_sample_link("examples/golden_sets/lifecycle_email_golden_set.csv", "View sample golden set")}
     </label>
-    <button {disabled}>{_icon("target")}<span>Run calibration</span></button>
+    <button {disabled} data-progress="Running calibration...">{_icon("target")}<span>Run calibration</span></button>
   </form>
   <form method="post" action="/actions/outcomes" class="stack" enctype="multipart/form-data">
     <h3>Outcome correlation</h3>
@@ -692,7 +776,7 @@ def _calibrate_panel(run_id: str | None) -> str:
       <input name="outcomes_file" type="file" accept=".csv,text/csv" required>
       {_sample_link("examples/outcomes/lifecycle_email_outcomes.csv", "View sample outcomes")}
     </label>
-    <button {disabled}>{_icon("chart")}<span>Calculate correlation</span></button>
+    <button {disabled} data-progress="Calculating correlation...">{_icon("chart")}<span>Calculate correlation</span></button>
   </form>
 </div>
 <div class="next-actions"><a class="button-link" href="{_step_url("backtest", run_id)}">{_icon("history")}<span>Run historical backtest</span></a></div>"""
@@ -733,8 +817,8 @@ def _backtest_panel(run_id: str | None) -> str:
       </select>
     </label>
   </div>
-  {_provider_controls()}
-  <button>{_icon("history")}<span>Run backtest</span></button>
+  {_provider_controls(return_step="backtest", run_id=run_id)}
+  <button data-progress="Running backtest...">{_icon("history")}<span>Run backtest</span></button>
 </form>"""
 
 
@@ -893,6 +977,7 @@ def _icon(name: str) -> str:
         "play": '<path d="m8 5 11 7-11 7z"/>',
         "check": '<path d="m5 12 4 4L19 6"/>',
         "guide": '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+        "download": '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
     }
     return (
         '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" '
@@ -906,29 +991,60 @@ def _js() -> str:
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('form').forEach((form) => {
     const select = form.querySelector('[data-provider-select]');
-    if (!select) return;
-    const model = form.querySelector('[data-model-input]');
-    const panels = form.querySelectorAll('[data-provider-panel]');
-    const updateProvider = () => {
-      const provider = select.value;
-      panels.forEach((panel) => {
-        panel.hidden = panel.dataset.providerPanel !== provider;
-      });
-      if (model) {
-        const placeholders = {
-          heuristic: 'optional for heuristic',
-          openai: 'gpt-4.1-mini',
-          ollama: 'llama3.1'
-        };
-        model.placeholder = placeholders[provider] || 'optional';
-        model.required = (provider === 'openai' && model.dataset.openaiModelConfigured !== 'true') ||
-          (provider === 'ollama' && model.dataset.ollamaModelConfigured !== 'true');
+    if (select) {
+      const model = form.querySelector('[data-model-input]');
+      const panels = form.querySelectorAll('[data-provider-panel]');
+      const updateProvider = () => {
+        const provider = select.value;
+        panels.forEach((panel) => {
+          panel.hidden = panel.dataset.providerPanel !== provider;
+        });
+        if (model) {
+          const placeholders = {
+            heuristic: 'optional for heuristic',
+            openai: 'gpt-4.1-mini',
+            ollama: 'llama3.1'
+          };
+          model.placeholder = placeholders[provider] || 'optional';
+          model.required = (provider === 'openai' && model.dataset.openaiModelConfigured !== 'true') ||
+            (provider === 'ollama' && model.dataset.ollamaModelConfigured !== 'true');
+        }
+      };
+      select.addEventListener('change', updateProvider);
+      updateProvider();
+    }
+    form.addEventListener('submit', (event) => {
+      const submitter = event.submitter || form.querySelector('button[type="submit"], button:not([type])');
+      const confirmation = submitter?.dataset.confirm;
+      if (confirmation && !window.confirm(confirmation)) {
+        event.preventDefault();
+        return;
       }
-    };
-    select.addEventListener('change', updateProvider);
-    updateProvider();
+      const label = submitter?.dataset.progress || 'Working...';
+      showProgress(label);
+      form.querySelectorAll('button').forEach((button) => {
+        button.disabled = true;
+      });
+      if (submitter) {
+        submitter.classList.add('is-loading');
+        const span = submitter.querySelector('span');
+        if (span) span.textContent = label;
+      }
+    });
   });
 });
+
+function showProgress(label) {
+  let overlay = document.querySelector('.progress-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'progress-overlay';
+    overlay.innerHTML = '<div class="progress-card"><div class="spinner" aria-hidden="true"></div><strong></strong><p>This can take a moment. Keep this window open.</p></div>';
+    document.body.appendChild(overlay);
+  }
+  overlay.querySelector('strong').textContent = label;
+  overlay.hidden = false;
+}
 """
 
 
@@ -1017,6 +1133,13 @@ textarea { min-height: 70px; resize: vertical; }
 button { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: var(--accent); color: white; padding: 10px 13px; font-weight: 850; cursor: pointer; width: fit-content; box-shadow: 0 8px 18px rgba(13,118,109,.18); }
 button:hover { background: var(--accent-dark); }
 button:disabled { background: #94a3b8; cursor: not-allowed; }
+button.is-loading { background: #0a5f59; }
+.progress-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: rgba(20,26,34,.42); backdrop-filter: blur(2px); }
+.progress-card { width: min(360px, 100%); background: white; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 24px 70px rgba(21,25,34,.24); padding: 22px; text-align: center; }
+.progress-card strong { display: block; margin-top: 12px; font-size: 18px; }
+.progress-card p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.spinner { width: 34px; height: 34px; margin: 0 auto; border-radius: 999px; border: 4px solid #dbe8e5; border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .next-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
 .button-link, .secondary-link { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; padding: 10px 13px; font-weight: 850; text-decoration: none; }
 .button-link { background: var(--accent); color: white; box-shadow: 0 8px 18px rgba(13,118,109,.18); }
