@@ -60,6 +60,12 @@ def _make_handler(db_path: Path):
                 except UserFacingError as exc:
                     self._send_text(str(exc))
                 return
+            if parsed.path == "/reports":
+                try:
+                    self._send_report(_value(query, "path"))
+                except UserFacingError as exc:
+                    self._send_html(_render_error(db_path, str(exc)))
+                return
             if parsed.path != "/":
                 self.send_error(404)
                 return
@@ -113,6 +119,15 @@ def _make_handler(db_path: Path):
             self.end_headers()
             self.wfile.write(encoded)
 
+        def _send_report(self, path: str) -> None:
+            body = _report_html(path)
+            encoded = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
         def _redirect(self, path: str, params: dict[str, str]) -> None:
             self.send_response(303)
             self.send_header("Location", f"{path}?{urlencode(params)}")
@@ -150,7 +165,7 @@ def _run_eval(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
     )
     store.save_results(run_id, engine.evaluate_cases(cases, rubric))
     report = render_html_report(store, run_id, report_path)
-    return f"Run complete. Evaluated {len(cases)} case(s). Report: {report.resolve().as_uri()}", run_id
+    return f"Run complete. Evaluated {len(cases)} case(s). Report: {_report_url(report)}", run_id
 
 
 def _ollama_server_reachable(base_url: str) -> bool:
@@ -211,7 +226,7 @@ def _render_report(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, s
     run_id = _run_id(store, payload)
     report_path = _value(payload, "report_path") or None
     report = render_html_report(store, run_id, report_path)
-    return f"Report generated: {report.resolve().as_uri()}", run_id
+    return f"Report generated: {_report_url(report)}", run_id
 
 
 def _save_review(db_path: Path, payload: dict[str, list[str]]) -> tuple[str, str]:
@@ -896,16 +911,36 @@ def _safe_filename(filename: str) -> str:
 def _notice(value: str) -> str:
     if not value:
         return ""
-    return f'<div class="notice">{_linkify_file_uris(value)}</div>'
+    return f'<div class="notice">{_linkify_notice_urls(value)}</div>'
 
 
-def _linkify_file_uris(value: str) -> str:
+def _linkify_notice_urls(value: str) -> str:
     escaped = html.escape(value)
+    escaped = re.sub(
+        r"(/reports\?path=[^\s<]+)",
+        r'<a href="\1">Open report</a>',
+        escaped,
+    )
     return re.sub(
         r"(file:///[^\s<]+)",
         r'<a href="\1">\1</a>',
         escaped,
     )
+
+
+def _report_url(path: str | Path) -> str:
+    return f"/reports?{urlencode({'path': str(Path(path).resolve())})}"
+
+
+def _report_html(path: str) -> str:
+    if not path:
+        raise UserFacingError("Report path is missing.")
+    report_path = Path(path).expanduser().resolve()
+    if not report_path.exists() or not report_path.is_file():
+        raise UserFacingError(f"Report file not found: {report_path}")
+    if report_path.suffix.lower() not in {".html", ".htm"}:
+        raise UserFacingError(f"Report file must be HTML: {report_path}")
+    return report_path.read_text(encoding="utf-8")
 
 
 def _status(value: int | None) -> str:
