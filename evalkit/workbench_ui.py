@@ -935,7 +935,7 @@ def _info(text: str) -> str:
 
 def _sample_link(path: str, label: str) -> str:
     url = f"/samples?{urlencode({'path': path})}"
-    return f'<a class="sample-link" href="{html.escape(url)}" target="_blank" rel="noopener">{_icon("file")}<span>{html.escape(label)}</span></a>'
+    return f'<a class="sample-link" href="{html.escape(url)}" data-sample-link data-sample-label="{html.escape(label)}">{_icon("file")}<span>{html.escape(label)}</span></a>'
 
 
 def _sample_text(path: str) -> str:
@@ -978,6 +978,13 @@ def _icon(name: str) -> str:
 def _js() -> str:
     return """
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-sample-link]').forEach((link) => {
+    link.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await showSamplePreview(link.href, link.dataset.sampleLabel || link.textContent.trim());
+    });
+  });
   document.querySelectorAll('form').forEach((form) => {
     const category = form.querySelector('[data-category-select]');
     const workflowName = form.querySelector('[data-workflow-name]');
@@ -1062,6 +1069,48 @@ function showProgress(label) {
   overlay.querySelector('strong').textContent = label;
   overlay.hidden = false;
 }
+
+async function showSamplePreview(url, label) {
+  const modal = sampleModal();
+  modal.querySelector('[data-sample-title]').textContent = label;
+  const body = modal.querySelector('[data-sample-body]');
+  body.textContent = 'Loading sample...';
+  modal.hidden = false;
+  try {
+    const response = await fetch(url);
+    body.textContent = await response.text();
+  } catch (error) {
+    body.textContent = `Could not load sample: ${error}`;
+  }
+}
+
+function sampleModal() {
+  let modal = document.querySelector('.sample-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.className = 'sample-modal';
+  modal.hidden = true;
+  modal.innerHTML = `
+    <div class="sample-card" role="dialog" aria-modal="true" aria-labelledby="sample-title">
+      <div class="sample-header">
+        <strong id="sample-title" data-sample-title>Sample</strong>
+        <button type="button" data-sample-close>Close</button>
+      </div>
+      <pre data-sample-body></pre>
+    </div>
+  `;
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) modal.hidden = true;
+  });
+  modal.querySelector('[data-sample-close]').addEventListener('click', () => {
+    modal.hidden = true;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') modal.hidden = true;
+  });
+  document.body.appendChild(modal);
+  return modal;
+}
 """
 
 
@@ -1136,6 +1185,12 @@ label.inline { display: flex; align-items: center; gap: 8px; }
 .sample-link { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: var(--accent-dark); text-decoration: none; font-size: 12px; font-weight: 800; }
 .sample-link:hover { text-decoration: underline; }
 .sample-link .icon { width: 14px; height: 14px; }
+.sample-modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: rgba(20,26,34,.48); backdrop-filter: blur(2px); }
+.sample-card { width: min(860px, 100%); max-height: min(760px, calc(100vh - 48px)); display: grid; grid-template-rows: auto minmax(0, 1fr); background: white; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 24px 70px rgba(21,25,34,.24); overflow: hidden; }
+.sample-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.sample-header strong { font-size: 15px; }
+.sample-header button { padding: 8px 11px; background: #eef2f7; color: #334155; box-shadow: none; }
+.sample-card pre { margin: 0; height: 100%; overflow: auto; border-radius: 0; background: #f8fafc; border: 0; padding: 16px; }
 .provider-row { align-items: start; }
 .provider-setup { border: 1px solid #dbe3ea; background: #fbfdff; border-radius: 8px; padding: 14px; display: grid; gap: 10px; }
 .provider-setup strong { display: flex; align-items: center; gap: 8px; color: #1f2937; }
