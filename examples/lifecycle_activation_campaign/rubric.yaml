@@ -1,0 +1,50 @@
+name: lifecycle_activation_campaign_quality
+version: 0.1
+artifact_type: lifecycle_email
+description: Rubric for onboarding and activation lifecycle emails that nudge trial users toward a meaningful first outcome.
+dimensions:
+  - name: subject_line_length
+    evaluator: logic
+    description: Subject line should be short enough to scan in an inbox.
+    field: subject_line
+    rule: max_chars
+    threshold: 55
+
+  - name: activation_cta
+    evaluator: logic
+    description: Email should include a concrete activation action.
+    field: body
+    rule: contains_cta
+    terms:
+      - invite
+      - connect
+      - create
+      - start
+      - set up
+      - try
+      - open
+
+  - name: outcome_specificity
+    evaluator: llm_judge
+    description: The message names a specific user outcome rather than describing the product generically.
+    scale: pass_fail
+    field: body
+
+  - name: lifecycle_stage_fit
+    evaluator: llm_judge
+    description: The email fits an early trial or onboarding moment and does not ask for a late-stage conversion too soon.
+    scale: pass_fail
+    field: body
+    requires_human_review: true
+
+  - name: friction_reduction
+    evaluator: llm_judge
+    description: The email makes the next step feel easy, concrete, and low effort.
+    scale: pass_fail
+    field: body
+
+  - name: brand_voice
+    evaluator: human_review
+    description: A reviewer confirms the email feels useful, direct, and credible for a startup GTM audience.
+    scale: pass_fail
+    requires_human_review: true

@@ -1,0 +1,54 @@
+name: lifecycle_winback_campaign_quality
+version: 0.1
+artifact_type: lifecycle_email
+description: Rubric for lifecycle winback emails that re-engage inactive users without sounding desperate or generic.
+dimensions:
+  - name: subject_line_length
+    evaluator: logic
+    description: Subject line should be concise enough for inactive users to scan quickly.
+    field: subject_line
+    rule: max_chars
+    threshold: 50
+
+  - name: respectful_tone
+    evaluator: logic
+    description: Email should avoid manipulative, desperate, or guilt-based winback language.
+    field: body
+    rule: forbidden_terms
+    terms:
+      - last chance
+      - final warning
+      - don't miss out
+      - you failed
+      - urgent
+
+  - name: clear_return_path
+    evaluator: logic
+    description: Email should include a simple path back into the product or conversation.
+    field: body
+    rule: contains_cta
+    terms:
+      - open
+      - restart
+      - reply
+      - review
+      - pick up
+      - continue
+
+  - name: remembered_context
+    evaluator: llm_judge
+    description: The email references what the user was trying to accomplish or where they left off.
+    scale: pass_fail
+    field: body
+
+  - name: renewed_value
+    evaluator: llm_judge
+    description: The email gives a credible reason to return now, not just a generic reminder.
+    scale: pass_fail
+    field: body
+
+  - name: audience_fit
+    evaluator: human_review
+    description: A reviewer confirms the message fits the audience, product maturity, and relationship stage.
+    scale: pass_fail
+    requires_human_review: true
