@@ -38,10 +38,17 @@ class OpenAIProvider:
                 text={"format": {"type": "json_object"}},
             )
         except Exception as exc:
+            detail = str(exc)
+            if "insufficient_quota" in detail or "exceeded your current quota" in detail or "Error code: 429" in detail:
+                raise UserFacingError(
+                    f"OpenAI quota or billing blocked the request for model '{resolved_model}'.\n"
+                    "Fix: check your OpenAI project billing and usage limits, use a different API key, or switch the Workbench provider to Heuristic or Ollama for local testing.\n"
+                    f"Provider detail: {detail}"
+                ) from exc
             raise UserFacingError(
                 f"OpenAI request failed for model '{resolved_model}'.\n"
                 "Fix: check your API key, model name, account access, and network connection.\n"
-                f"Provider detail: {exc}"
+                f"Provider detail: {detail}"
             ) from exc
         text = response.output_text
         try:

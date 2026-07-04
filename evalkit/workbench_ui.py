@@ -514,11 +514,12 @@ def _run_form() -> str:
 def _provider_controls() -> str:
     has_openai_model = bool(os.getenv("EVALKIT_OPENAI_MODEL"))
     has_ollama_model = bool(os.getenv("EVALKIT_OLLAMA_MODEL"))
+    default_openai_model = os.getenv("EVALKIT_OPENAI_MODEL") or "gpt-5.5"
     openai_key_state = "OPENAI_API_KEY is set in this environment." if os.getenv("OPENAI_API_KEY") else "No OPENAI_API_KEY detected."
     openai_model_state = (
         f"EVALKIT_OPENAI_MODEL is set to {html.escape(os.getenv('EVALKIT_OPENAI_MODEL', ''))}."
         if has_openai_model
-        else "Enter a model below or set EVALKIT_OPENAI_MODEL."
+        else f"Default model is {default_openai_model}; you can change it below."
     )
     ollama_model_state = (
         f"EVALKIT_OLLAMA_MODEL is set to {html.escape(os.getenv('EVALKIT_OLLAMA_MODEL', ''))}."
@@ -533,8 +534,8 @@ def _provider_controls() -> str:
         <option value="ollama">Ollama - local model</option>
       </select>
     </label>
-    <label>Model{_help("Required for OpenAI and Ollama unless you set the matching environment variable. Examples: gpt-4.1-mini or llama3.1.")}
-      <input name="model" data-model-input data-openai-model-configured="{str(has_openai_model).lower()}" data-ollama-model-configured="{str(has_ollama_model).lower()}" placeholder="optional for heuristic">
+    <label>Model{_help("Required for OpenAI and Ollama unless you set the matching environment variable. OpenAI defaults to gpt-5.5.")}
+      <input name="model" data-model-input data-default-openai-model="{html.escape(default_openai_model)}" data-openai-model-configured="{str(has_openai_model).lower()}" data-ollama-model-configured="{str(has_ollama_model).lower()}" placeholder="optional for heuristic">
     </label>
   </div>
   <div class="provider-setup" data-provider-panel="heuristic">
@@ -547,7 +548,7 @@ def _provider_controls() -> str:
     <label>OpenAI API key{_help("Used only for this local run. It is not saved to SQLite. You can leave this blank if OPENAI_API_KEY is set.")}
       <input name="openai_api_key" type="password" autocomplete="off" placeholder="sk-...">
     </label>
-    <p class="setup-command">CLI alternative: <code>export OPENAI_API_KEY='your_key'</code> and <code>export EVALKIT_OPENAI_MODEL='gpt-4.1-mini'</code></p>
+    <p class="setup-command">CLI alternative: <code>export OPENAI_API_KEY='your_key'</code> and <code>export EVALKIT_OPENAI_MODEL='{html.escape(default_openai_model)}'</code></p>
   </div>
   <div class="provider-setup" data-provider-panel="ollama" hidden>
     <strong>{_icon("guide")} Ollama setup</strong>
@@ -1011,11 +1012,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const model = form.querySelector('[data-model-input]');
       const panels = form.querySelectorAll('[data-provider-panel]');
       const ollamaCommand = form.querySelector('[data-ollama-command]');
+      let modelTouched = false;
       const updateOllamaCommand = () => {
         if (!ollamaCommand || !model) return;
         const modelName = model.value.trim() || 'llama3.1';
         ollamaCommand.textContent = `evalkit setup ollama --model ${modelName}`;
       };
+      if (model) {
+        model.addEventListener('input', () => {
+          modelTouched = true;
+          updateOllamaCommand();
+        });
+      }
       const updateProvider = () => {
         const provider = select.value;
         panels.forEach((panel) => {
@@ -1024,17 +1032,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (model) {
           const placeholders = {
             heuristic: 'optional for heuristic',
-            openai: 'gpt-4.1-mini',
+            openai: model.dataset.defaultOpenaiModel || 'gpt-5.5',
             ollama: 'llama3.1'
           };
           model.placeholder = placeholders[provider] || 'optional';
+          if (provider === 'openai' && !modelTouched && !model.value.trim()) {
+            model.value = model.dataset.defaultOpenaiModel || 'gpt-5.5';
+          }
+          if (provider === 'ollama' && !modelTouched && !model.value.trim()) {
+            model.value = 'llama3.1';
+          }
           model.required = (provider === 'openai' && model.dataset.openaiModelConfigured !== 'true') ||
             (provider === 'ollama' && model.dataset.ollamaModelConfigured !== 'true');
         }
         updateOllamaCommand();
       };
       select.addEventListener('change', updateProvider);
-      if (model) model.addEventListener('input', updateOllamaCommand);
       updateProvider();
     }
     form.addEventListener('submit', (event) => {
@@ -1045,7 +1058,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       const label = submitter?.dataset.progress || 'Working...';
-      showProgress(label);
+      showProgress(label, form);
       form.querySelectorAll('button').forEach((button) => {
         button.disabled = true;
       });
@@ -1058,16 +1071,61 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-function showProgress(label) {
+function showProgress(label, form) {
   let overlay = document.querySelector('.progress-overlay');
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.className = 'progress-overlay';
-    overlay.innerHTML = '<div class="progress-card"><div class="spinner" aria-hidden="true"></div><strong></strong><p>This can take a moment. Keep this window open.</p></div>';
+    overlay.innerHTML = `
+      <div class="progress-card">
+        <div class="spinner" aria-hidden="true"></div>
+        <strong data-progress-title></strong>
+        <p data-progress-copy></p>
+        <ol data-progress-steps></ol>
+      </div>
+    `;
     document.body.appendChild(overlay);
   }
-  overlay.querySelector('strong').textContent = label;
+  const provider = form?.querySelector('[data-provider-select]')?.value || '';
+  const model = form?.querySelector('[data-model-input]')?.value || '';
+  const providerCopy = provider === 'openai'
+    ? `Calling OpenAI${model ? ` with ${model}` : ''}. This can take a moment depending on quota, latency, and number of judged dimensions.`
+    : provider === 'ollama'
+      ? `Calling your local Ollama model${model ? ` (${model})` : ''}. Larger local models can take longer.`
+      : 'Running offline checks and saving results locally.';
+  overlay.querySelector('[data-progress-title]').textContent = label;
+  overlay.querySelector('[data-progress-copy]').textContent = providerCopy;
+  overlay.querySelector('[data-progress-steps]').innerHTML = progressSteps(label).map((step, index) => (
+    `<li class="${index === 0 ? 'active' : ''}"><span>${index + 1}</span>${step}</li>`
+  )).join('');
   overlay.hidden = false;
+  let index = 0;
+  window.clearInterval(window.__goldsetProgressTimer);
+  window.__goldsetProgressTimer = window.setInterval(() => {
+    const steps = [...overlay.querySelectorAll('[data-progress-steps] li')];
+    if (!steps.length) return;
+    steps.forEach((step, stepIndex) => {
+      step.classList.toggle('done', stepIndex < index);
+      step.classList.toggle('active', stepIndex === index);
+    });
+    index = Math.min(index + 1, steps.length - 1);
+  }, 1400);
+}
+
+function progressSteps(label) {
+  if (label.includes('eval') || label.includes('backtest')) {
+    return ['Reading rubric and CSV', 'Running deterministic checks', 'Judging qualitative dimensions', 'Saving results and rendering report'];
+  }
+  if (label.includes('calibration')) {
+    return ['Reading golden set', 'Matching labels to results', 'Calculating reliability metrics'];
+  }
+  if (label.includes('correlation')) {
+    return ['Reading outcomes file', 'Joining cases to metrics', 'Calculating correlations'];
+  }
+  if (label.includes('findings')) {
+    return ['Reading human reviews', 'Extracting review signals', 'Grouping recurring findings'];
+  }
+  return ['Preparing request', 'Saving changes', 'Refreshing workbench'];
 }
 
 async function showSamplePreview(url, label) {
@@ -1217,10 +1275,16 @@ button:hover { background: var(--accent-dark); }
 button:disabled { background: #94a3b8; cursor: not-allowed; }
 button.is-loading { background: #0a5f59; }
 .progress-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: rgba(20,26,34,.42); backdrop-filter: blur(2px); }
-.progress-card { width: min(360px, 100%); background: white; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 24px 70px rgba(21,25,34,.24); padding: 22px; text-align: center; }
+.progress-card { width: min(460px, 100%); background: white; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 24px 70px rgba(21,25,34,.24); padding: 22px; text-align: left; }
 .progress-card strong { display: block; margin-top: 12px; font-size: 18px; }
-.progress-card p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.progress-card p { margin: 7px 0 14px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .spinner { width: 34px; height: 34px; margin: 0 auto; border-radius: 999px; border: 4px solid #dbe8e5; border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.progress-card ol { list-style: none; display: grid; gap: 8px; padding: 0; margin: 0; }
+.progress-card li { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.progress-card li span { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: #eef2f7; color: #475569; font-weight: 900; font-size: 12px; }
+.progress-card li.active { color: var(--ink); font-weight: 800; }
+.progress-card li.active span { background: #e7f7f1; color: var(--accent-dark); }
+.progress-card li.done span { background: var(--accent); color: white; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .next-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
 .button-link, .secondary-link { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; padding: 10px 13px; font-weight: 850; text-decoration: none; }
