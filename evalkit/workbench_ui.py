@@ -53,10 +53,16 @@ def _make_handler(db_path: Path):
     class WorkbenchHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            if parsed.path == "/samples":
+                try:
+                    self._send_text(_sample_text(_value(query, "path")))
+                except UserFacingError as exc:
+                    self._send_text(str(exc))
+                return
             if parsed.path != "/":
                 self.send_error(404)
                 return
-            query = parse_qs(parsed.query)
             self._send_html(_render_home(db_path, query))
 
         def do_POST(self) -> None:
@@ -95,6 +101,14 @@ def _make_handler(db_path: Path):
             encoded = body.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def _send_text(self, body: str) -> None:
+            encoded = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
             self.wfile.write(encoded)
@@ -382,7 +396,7 @@ def _hero_title(step: str, selected) -> str:
 def _hero_copy(step: str) -> str:
     copy = {
         "guide": "Use Goldset as a learning loop: define the standard, run evals, review judgment calls, learn from repeated feedback, then calibrate and backtest before scaling.",
-        "setup": "Choose the files and model route for one run. Use categories to keep campaigns, channels, and experiments organized.",
+        "setup": "",
         "results": "Inspect what passed, what failed, and which dimensions need human judgment before you move on.",
         "review": "Turn expert judgment into structured feedback the system can learn from.",
         "learn": "Group review signals into recurring findings and decide what should improve next.",
@@ -468,7 +482,7 @@ def _run_form() -> str:
 <form method="post" action="/actions/run" class="stack" enctype="multipart/form-data">
   <div class="row">
     <label>Category{_help("Use categories to group related workflows by channel, campaign, or experiment.")}
-      <select name="category">
+      <select name="category" data-category-select>
         <option value="Lifecycle">Lifecycle</option>
         <option value="Paid Social">Paid Social</option>
         <option value="Landing Page">Landing Page</option>
@@ -479,7 +493,7 @@ def _run_form() -> str:
       </select>
     </label>
     <label>Workflow name{_help("Name this run like a version: Lifecycle v1, Paid Social hook test, Landing page model comparison.")}
-      <input name="suite_name" value="Lifecycle Email Evaluation">
+      <input name="suite_name" data-workflow-name value="Lifecycle Email Evaluation">
     </label>
   </div>
   <div class="row">
@@ -512,9 +526,9 @@ def _provider_controls() -> str:
         else "Enter a pulled local model below or set EVALKIT_OLLAMA_MODEL."
     )
     return f"""<div class="row provider-row">
-    <label>Provider{_help("Choose heuristic for offline demos, OpenAI for hosted model judging, or Ollama for local open-source models.")}
+    <label>Provider{_help("Choose heuristic for offline runs, OpenAI for hosted model judging, or Ollama for local open-source models.")}
       <select name="provider" data-provider-select>
-        <option value="heuristic">Heuristic - offline demo</option>
+        <option value="heuristic">Heuristic - offline</option>
         <option value="openai">OpenAI - hosted LLM judge</option>
         <option value="ollama">Ollama - local model</option>
       </select>
@@ -524,8 +538,8 @@ def _provider_controls() -> str:
     </label>
   </div>
   <div class="provider-setup" data-provider-panel="heuristic">
-    <strong>{_icon("check")} Offline demo mode</strong>
-    <p>Runs without API keys or model downloads. Use this for setup checks and sample data; use OpenAI or Ollama when you want real LLM judgment.</p>
+    <strong>{_icon("check")} Offline mode</strong>
+    <p>Runs without API keys or model downloads. Use this for setup checks and sample data; use OpenAI or Ollama when you want LLM judgment.</p>
   </div>
   <div class="provider-setup" data-provider-panel="openai" hidden>
     <strong>{_icon("guide")} OpenAI setup</strong>
@@ -920,8 +934,22 @@ def _info(text: str) -> str:
 
 
 def _sample_link(path: str, label: str) -> str:
-    url = Path(path).resolve().as_uri()
-    return f'<a class="sample-link" href="{html.escape(url)}">{_icon("file")}<span>{html.escape(label)}</span></a>'
+    url = f"/samples?{urlencode({'path': path})}"
+    return f'<a class="sample-link" href="{html.escape(url)}" target="_blank" rel="noopener">{_icon("file")}<span>{html.escape(label)}</span></a>'
+
+
+def _sample_text(path: str) -> str:
+    if not path:
+        raise UserFacingError("Sample path is missing.")
+    root = Path.cwd().resolve()
+    sample_path = (root / path).resolve()
+    try:
+        sample_path.relative_to(root)
+    except ValueError as exc:
+        raise UserFacingError("Sample path must stay inside this repo.") from exc
+    if not sample_path.exists() or not sample_path.is_file():
+        raise UserFacingError(f"Sample file not found: {path}")
+    return sample_path.read_text(encoding="utf-8")
 
 
 def _icon(name: str) -> str:
@@ -951,6 +979,26 @@ def _js() -> str:
     return """
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('form').forEach((form) => {
+    const category = form.querySelector('[data-category-select]');
+    const workflowName = form.querySelector('[data-workflow-name]');
+    if (category && workflowName) {
+      const defaults = {
+        'Lifecycle': 'Lifecycle Email Evaluation',
+        'Paid Social': 'Paid Social Ad Evaluation',
+        'Landing Page': 'Landing Page Copy Evaluation',
+        'SEO / Content': 'SEO Content Brief Evaluation',
+        'Outbound': 'Outbound Copy Evaluation',
+        'Experiment': 'Marketing Experiment Evaluation',
+        'General': 'Marketing Evaluation'
+      };
+      workflowName.addEventListener('input', () => {
+        workflowName.dataset.userEdited = 'true';
+      });
+      category.addEventListener('change', () => {
+        if (workflowName.dataset.userEdited === 'true') return;
+        workflowName.value = defaults[category.value] || defaults.General;
+      });
+    }
     const select = form.querySelector('[data-provider-select]');
     if (select) {
       const model = form.querySelector('[data-model-input]');
@@ -1054,6 +1102,7 @@ main { padding: 34px; max-width: 1320px; width: 100%; }
 .eyebrow { margin: 0 0 8px; color: var(--accent-dark); font-weight: 800; text-transform: uppercase; font-size: 12px; letter-spacing: .08em; }
 h1 { margin: 0; max-width: 820px; font-size: 36px; line-height: 1.08; letter-spacing: 0; }
 .hero-copy { max-width: 780px; margin: 10px 0 0; color: var(--muted); font-size: 16px; line-height: 1.55; }
+.hero-copy:empty { display: none; }
 h2 { margin: 0 0 8px; font-size: 21px; letter-spacing: 0; }
 h3 { margin: 18px 0 8px; font-size: 15px; letter-spacing: 0; }
 .grid { display: grid; gap: 16px; }

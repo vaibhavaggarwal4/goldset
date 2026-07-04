@@ -28,7 +28,7 @@ The first complete example is lifecycle email. Editable default rubrics are also
 - OpenAI API key only if you want to run real LLM judge calls
 - Ollama only if you want to run local open-source models
 
-You can run the demo without an API key or local model by using the built-in `heuristic` provider.
+You can run offline without an API key or local model by using the built-in `heuristic` provider.
 
 ## Quickstart
 
